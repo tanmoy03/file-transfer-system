@@ -23,19 +23,19 @@ def find_server():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-    sock.settimeout(3)
+    sock.settimeout(5)
 
-    message = DISCOVERY_MESSAGE.encode()
+    print("DEBUG: Sending discovery broadcast on port", DISCOVERY_PORT)
 
     try:
-        # Broadcast to entire local network
-        sock.sendto(message, ("255.255.255.255", DISCOVERY_PORT))
-
+        sock.sendto(DISCOVERY_MESSAGE.encode(), ("255.255.255.255", DISCOVERY_PORT))
+        print("DEBUG: Broadcast sent, waiting for reply...")
+        
         data, addr = sock.recvfrom(BUFFER_SIZE)
-
-        if data.decode() == RESPONSE_MESSAGE:
-            return addr[0]
+        print("DEBUG: Reply received from", addr)
+        return addr[0]
 
     except socket.timeout:
+        print("DEBUG: Timeout reached – no response")
         return None
 

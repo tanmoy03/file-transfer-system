@@ -38,6 +38,10 @@ print("Searching for server...")
 SERVER_IP = find_server()
 
 if SERVER_IP is None:
+    print("Auto-discovery failed.")
+    SERVER_IP = input("Enter server IP manually: ")
+
+if SERVER_IP is None:
     print("No server found on network!")
     exit()
 
