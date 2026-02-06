@@ -29,7 +29,12 @@
 # conn.close()
 # server.close()
 
-from connection import create_udp_socket
+from common.discovery import run_discovery_server
+import threading
+
+threading.Thread(target=run_discovery_server, daemon=True).start()
+
+from server.connection import create_udp_socket
 
 SERVER_IP = "0.0.0.0"
 SERVER_PORT = 5001

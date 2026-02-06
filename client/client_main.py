@@ -29,9 +29,20 @@
 # print("File sent successfully.")
 # client.close()
 
-from connection import create_udp_socket
+from client.connection import create_udp_socket
 
-SERVER_IP = input("Enter server IP: ")
+from common.discovery import find_server
+
+print("Searching for server...")
+
+SERVER_IP = find_server()
+
+if SERVER_IP is None:
+    print("No server found on network!")
+    exit()
+
+print("Server found at:", SERVER_IP)
+
 SERVER_PORT = 5001
 
 sock = create_udp_socket()
