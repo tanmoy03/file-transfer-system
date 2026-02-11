@@ -29,9 +29,10 @@
 # print("File sent successfully.")
 # client.close()
 
-from client.connection import create_udp_socket
-
+import os
 from common.discovery import find_server
+from client.connection import create_udp_socket
+from client.sender import send_file
 
 print("Searching for server...")
 
@@ -41,24 +42,35 @@ if SERVER_IP is None:
     print("Auto-discovery failed.")
     SERVER_IP = input("Enter server IP manually: ")
 
-if SERVER_IP is None:
-    print("No server found on network!")
+if not SERVER_IP:
+    print("No server available. Exiting.")
     exit()
 
 print("Server found at:", SERVER_IP)
 
 SERVER_PORT = 5001
 
-sock = create_udp_socket()
-
 while True:
-    msg = input("Enter message (or quit): ")
+    print("\nOptions:")
+    print("1 - Send a file")
+    print("2 - Quit")
 
-    if msg == "quit":
+    choice = input("Enter choice: ")
+
+    if choice == "1":
+
+        filename = input("Enter path of file to send: ")
+
+        if not os.path.isfile(filename):
+            print("File does not exist:", filename)
+            continue
+
+        send_file(filename, SERVER_IP, SERVER_PORT)
+
+
+    elif choice == "2":
+        print("Exiting client.")
         break
 
-    sock.sendto(msg.encode(), (SERVER_IP, SERVER_PORT))
-
-    data, addr = sock.recvfrom(1024)
-
-    print("Server replied:", data.decode())
+    else:
+        print("Invalid option.")

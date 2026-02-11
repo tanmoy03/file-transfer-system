@@ -34,24 +34,11 @@ import threading
 
 threading.Thread(target=run_discovery_server, daemon=True).start()
 
-from server.connection import create_udp_socket
+from server.receiver import receive_files
 
-SERVER_IP = "0.0.0.0"
 SERVER_PORT = 5001
-
-sock = create_udp_socket()
-sock.bind((SERVER_IP, SERVER_PORT))
 
 print("UDP Server running...")
 print(f"Listening on port {SERVER_PORT}")
 
-while True:
-    data, addr = sock.recvfrom(1024)
-
-    message = data.decode()
-
-    print(f"Received from {addr}: {message}")
-
-    # Reply to client
-    response = f"ACK: {message}"
-    sock.sendto(response.encode(), addr)
+receive_files(SERVER_PORT)
