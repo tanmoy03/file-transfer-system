@@ -43,6 +43,18 @@ def receiver_loop(sock: socket.socket, stop_event: threading.Event):
         elif mtype == "READY":
             print("\nServer ready — sending file...")
             print("> ", end="", flush=True)
+        
+        elif mtype == "INBOX_LIST":
+            files = msg.get("files", [])
+
+            print("\n Inbox files:")
+            if not files:
+                print("  (empty)")
+            else:
+                for f in files:
+                    print(" -", f)
+
+            print("> ", end="", flush=True)
 
         else:
             print(f"\n[SERVER] {msg}")
@@ -72,7 +84,7 @@ def main() -> None:
         sock.close()
         return
 
-    print(f"Logged in as {resp.get('username')}. Commands: list, send, quit")
+    print(f"Logged in as {resp.get('username')}. Commands: list, send, inbox, quit")
 
     stop_event = threading.Event()
     recv_thread = threading.Thread(target=receiver_loop, args=(sock, stop_event))
@@ -84,6 +96,9 @@ def main() -> None:
 
             if cmd == "list":
                 send_json(sock, {"type": "LIST_USERS"})
+            
+            elif cmd == "inbox":
+                send_json(sock, {"type": "INBOX"})
 
             elif cmd == "send":
                 to_user = input("Send to (username): ").strip()
@@ -115,7 +130,7 @@ def main() -> None:
                 break
 
             else:
-                print("Commands: list, send, quit")
+                print("Commands: list, send, inbox, quit")
 
     finally:
         # Clean shutdown
