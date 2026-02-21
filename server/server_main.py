@@ -70,7 +70,28 @@ def handle_client(conn: socket.socket, addr: Tuple[str, int]) -> None:
                     "type": "INBOX_LIST",
                     "files": files
                 })
-                
+
+            elif mtype == "GET_FILE":
+                filename = safe_filename(msg.get("filename") or "")
+
+                user_dir = os.path.join(STORAGE_DIR, username)
+                file_path = os.path.join(user_dir, filename)
+
+                if not os.path.exists(file_path):
+                    send_json(conn, {"type": "ERROR", "message": "File not found"})
+                    continue
+
+                file_size = os.path.getsize(file_path)
+
+                send_json(conn, {
+                    "type": "FILE_DOWNLOAD",
+                    "filename": filename,
+                    "file_size": file_size
+                })
+
+                with open(file_path, "rb") as f:
+                    send_bytes(conn, f.read())
+
             elif mtype == "SEND_FILE":
                 to_user = (msg.get("to") or "").strip()
                 filename = safe_filename(msg.get("filename") or "")
