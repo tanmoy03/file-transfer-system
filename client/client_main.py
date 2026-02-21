@@ -56,6 +56,19 @@ def receiver_loop(sock: socket.socket, stop_event: threading.Event):
 
             print("> ", end="", flush=True)
 
+        elif mtype == "FILE_DOWNLOAD":
+            filename = os.path.basename(msg.get("filename"))
+            size = int(msg.get("file_size"))
+
+            data = recv_bytes(sock, size)
+
+            out_path = os.path.join(DOWNLOADS_DIR, filename)
+            with open(out_path, "wb") as f:
+                f.write(data)
+
+            print(f"\n Downloaded '{filename}' to {out_path}")
+            print("> ", end="", flush=True)
+
         else:
             print(f"\n[SERVER] {msg}")
             print("> ", end="", flush=True)
@@ -84,7 +97,7 @@ def main() -> None:
         sock.close()
         return
 
-    print(f"Logged in as {resp.get('username')}. Commands: list, send, inbox, quit")
+    print(f"Logged in as {resp.get('username')}. Commands: list, send, inbox, get, quit")
 
     stop_event = threading.Event()
     recv_thread = threading.Thread(target=receiver_loop, args=(sock, stop_event))
@@ -99,6 +112,10 @@ def main() -> None:
             
             elif cmd == "inbox":
                 send_json(sock, {"type": "INBOX"})
+
+            elif cmd == "get":
+                filename = input("Filename to download: ").strip()
+                send_json(sock, {"type": "GET_FILE", "filename": filename})
 
             elif cmd == "send":
                 to_user = input("Send to (username): ").strip()
@@ -130,7 +147,7 @@ def main() -> None:
                 break
 
             else:
-                print("Commands: list, send, inbox, quit")
+                print("Commands: list, send, inbox, get, quit")
 
     finally:
         # Clean shutdown
