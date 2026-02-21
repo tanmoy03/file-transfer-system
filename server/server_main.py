@@ -104,8 +104,23 @@ def handle_client(conn: socket.socket, addr: Tuple[str, int]) -> None:
                     "file_size": file_size
                 })
 
+                # Send file
                 with open(file_path, "rb") as f:
-                    send_bytes(conn, f.read())
+                    data = f.read()
+                    send_bytes(conn, data)
+
+                # Delete file after successful delivery
+                try:
+                    os.remove(file_path)
+                    log_line(f"DELIVERED and DELETED file={filename} user={username}")
+                except Exception as e:
+                    log_line(f"DELETE FAILED file={filename} error={e}")
+        
+                # Inform client of successful consumption
+                send_json(conn, {
+                    "type": "FILE_CONSUMED",
+                    "filename": filename
+                })
 
             elif mtype == "SEND_FILE":
                 to_user = (msg.get("to") or "").strip()
