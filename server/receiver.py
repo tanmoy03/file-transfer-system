@@ -43,4 +43,4 @@ def receive_files(server_port):
         elif packet_type == TYPE_EOF:
             file.close()
             print("File received successfully")
-            break
+            

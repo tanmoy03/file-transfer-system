@@ -74,3 +74,8 @@ while True:
 
     else:
         print("Invalid option.")
+
+
+# server with mutliple clients where clients can login and send files to the server. The server can handle multiple clients at the same time and store the files in a directory named after the client. The server can also keep a log of all the files received from each client.
+# server then sends out files to desired clients on request. 
+
