@@ -69,6 +69,10 @@ def receiver_loop(sock: socket.socket, stop_event: threading.Event):
             print(f"\n Downloaded '{filename}' to {out_path}")
             print("> ", end="", flush=True)
 
+        elif mtype == "FILE_CONSUMED":
+            print(f"\n[INFO] '{msg.get('filename')}' removed from server inbox")
+            print("> ", end="", flush=True)
+
         elif mtype == "USER_JOINED":
             print(f"\n[INFO] {msg.get('username')} joined the server")
             print("> ", end="", flush=True)
