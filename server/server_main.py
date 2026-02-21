@@ -3,6 +3,7 @@ import time
 import socket
 import threading
 from typing import Dict, Tuple, Optional
+from common.discovery import run_discovery_server
 
 from common.wire import send_json, recv_json, recv_bytes, send_bytes
 
@@ -126,6 +127,8 @@ def handle_client(conn: socket.socket, addr: Tuple[str, int]) -> None:
 
 
 def main() -> None:
+    threading.Thread(target=run_discovery_server, daemon=True).start()
+    
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind((HOST, PORT))

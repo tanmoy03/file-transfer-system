@@ -2,6 +2,7 @@ import socket
 import os
 import threading
 from common.wire import send_json, recv_json, send_bytes, recv_bytes
+from common.discovery import find_server
 
 PORT = 5001
 DOWNLOADS_DIR = "downloads"
@@ -49,7 +50,14 @@ def receiver_loop(sock: socket.socket, stop_event: threading.Event):
 
 
 def main() -> None:
-    server_ip = input("Server IP: ").strip()
+    print("Searching for server...")
+    server_ip = find_server()
+
+    if server_ip is None:
+        server_ip = input("Server not found. Enter IP manually: ")
+    else:
+        print("Server found at:", server_ip)
+        
     username = input("Username: ").strip()
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
