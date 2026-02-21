@@ -60,6 +60,17 @@ def handle_client(conn: socket.socket, addr: Tuple[str, int]) -> None:
                     users = sorted(clients.keys())
                 send_json(conn, {"type": "USER_LIST", "users": users})
 
+            elif mtype == "INBOX":
+                user_dir = os.path.join(STORAGE_DIR, username)
+                os.makedirs(user_dir, exist_ok=True)
+
+                files = sorted(os.listdir(user_dir))
+
+                send_json(conn, {
+                    "type": "INBOX_LIST",
+                    "files": files
+                })
+                
             elif mtype == "SEND_FILE":
                 to_user = (msg.get("to") or "").strip()
                 filename = safe_filename(msg.get("filename") or "")
@@ -128,7 +139,7 @@ def handle_client(conn: socket.socket, addr: Tuple[str, int]) -> None:
 
 def main() -> None:
     threading.Thread(target=run_discovery_server, daemon=True).start()
-    
+
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind((HOST, PORT))
