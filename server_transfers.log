@@ -1,0 +1,7 @@
+[2026-02-21 16:33:28] RECEIVED from=alice to=bob file=test.txt size=15 path=storage\bob\test.txt
+[2026-02-21 16:33:28] FORWARDED from=alice to=bob file=test.txt size=15
+[2026-02-21 16:34:29] RECEIVED from=bob to=alice file=test.txt size=15 path=storage\alice\test.txt
+[2026-02-21 16:34:29] FORWARDED from=bob to=alice file=test.txt size=15
+[2026-02-21 16:35:29] RECEIVED from=bob to=alvce file=new.txt size=24 path=storage\alvce\new.txt
+[2026-02-21 16:47:59] RECEIVED from=alice to=bob file=new.txt size=24 path=storage\bob\new.txt
+[2026-02-21 16:47:59] FORWARDED from=alice to=bob file=new.txt size=24
