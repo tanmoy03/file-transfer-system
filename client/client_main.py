@@ -1,13 +1,14 @@
 import socket
 import os
 import threading
-from common.wire import send_json, recv_json, send_bytes, recv_bytes
+
+from common.wire import send_json, recv_json, send_bytes
 from common.discovery import find_server
 
 PORT = 5001
 DOWNLOADS_DIR = "downloads"
 
-
+# ================= RECEIVER THREAD =================
 def receiver_loop(sock: socket.socket, stop_event: threading.Event):
     os.makedirs(DOWNLOADS_DIR, exist_ok=True)
 
@@ -15,35 +16,67 @@ def receiver_loop(sock: socket.socket, stop_event: threading.Event):
         try:
             msg = recv_json(sock)
         except (ConnectionError, OSError):
-            # Socket closed / program shutting down
             break
         except Exception:
-            # Ignore unexpected decode/parse errors
             continue
 
         mtype = msg.get("type")
 
+        # ---------- Incoming live file ----------
         if mtype == "INCOMING_FILE":
             sender = msg.get("from")
             filename = os.path.basename(msg.get("filename") or "file.bin")
             size = int(msg.get("file_size") or 0)
 
-            try:
-                data = recv_bytes(sock, size)
-            except (ConnectionError, OSError):
-                break
-
             out_path = os.path.join(DOWNLOADS_DIR, filename)
+
+            received = 0
+            chunk_size = 4096
+
             with open(out_path, "wb") as f:
-                f.write(data)
+                while received < size:
+                    chunk = sock.recv(min(chunk_size, size - received))
+                    if not chunk:
+                        break
+
+                    f.write(chunk)
+                    received += len(chunk)
+
+                    percent = int((received / size) * 100)
+                    print(f"\rDownloading: {percent}%", end="", flush=True)
 
             print(f"\n Received '{filename}' from {sender}. Saved to {out_path}")
             print("> ", end="", flush=True)
 
-        elif mtype == "READY":
-            print("\nServer ready — sending file...")
+        # ---------- Inbox download ----------
+        elif mtype == "FILE_DOWNLOAD":
+            filename = os.path.basename(msg.get("filename"))
+            size = int(msg.get("file_size"))
+
+            out_path = os.path.join(DOWNLOADS_DIR, filename)
+
+            received = 0
+            chunk_size = 4096
+
+            with open(out_path, "wb") as f:
+                while received < size:
+                    chunk = sock.recv(min(chunk_size, size - received))
+                    if not chunk:
+                        break
+
+                    f.write(chunk)
+                    received += len(chunk)
+
+                    percent = int((received / size) * 100)
+                    print(f"\rDownloading: {percent}%", end="", flush=True)
+
+            print(f"\n⬇ Downloaded '{filename}' to {out_path}")
             print("> ", end="", flush=True)
-        
+
+        elif mtype == "FILE_CONSUMED":
+            print(f"\n[INFO] '{msg.get('filename')}' removed from server inbox")
+            print("> ", end="", flush=True)
+
         elif mtype == "INBOX_LIST":
             files = msg.get("files", [])
 
@@ -56,23 +89,6 @@ def receiver_loop(sock: socket.socket, stop_event: threading.Event):
 
             print("> ", end="", flush=True)
 
-        elif mtype == "FILE_DOWNLOAD":
-            filename = os.path.basename(msg.get("filename"))
-            size = int(msg.get("file_size"))
-
-            data = recv_bytes(sock, size)
-
-            out_path = os.path.join(DOWNLOADS_DIR, filename)
-            with open(out_path, "wb") as f:
-                f.write(data)
-
-            print(f"\n Downloaded '{filename}' to {out_path}")
-            print("> ", end="", flush=True)
-
-        elif mtype == "FILE_CONSUMED":
-            print(f"\n[INFO] '{msg.get('filename')}' removed from server inbox")
-            print("> ", end="", flush=True)
-
         elif mtype == "USER_JOINED":
             print(f"\n[INFO] {msg.get('username')} joined the server")
             print("> ", end="", flush=True)
@@ -81,12 +97,18 @@ def receiver_loop(sock: socket.socket, stop_event: threading.Event):
             print(f"\n[INFO] {msg.get('username')} left the server")
             print("> ", end="", flush=True)
 
+        elif mtype == "READY":
+            print("\nServer ready — sending file...")
+            print("> ", end="", flush=True)
+
         else:
             print(f"\n[SERVER] {msg}")
             print("> ", end="", flush=True)
 
 
-def main() -> None:
+# ================= MAIN CLIENT =================
+def main():
+
     print("Searching for server...")
     server_ip = find_server()
 
@@ -94,13 +116,13 @@ def main() -> None:
         server_ip = input("Server not found. Enter IP manually: ")
     else:
         print("Server found at:", server_ip)
-        
+
     username = input("Username: ").strip()
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect((server_ip, PORT))
 
-    # Login
+    # ---------- LOGIN ----------
     send_json(sock, {"type": "LOGIN", "username": username})
     resp = recv_json(sock)
 
@@ -109,19 +131,23 @@ def main() -> None:
         sock.close()
         return
 
-    print(f"Logged in as {resp.get('username')}. Commands: list, send, inbox, get, quit")
+    print(f"Logged in as {username}. Commands: list, send, inbox, get, quit")
 
     stop_event = threading.Event()
-    recv_thread = threading.Thread(target=receiver_loop, args=(sock, stop_event))
+    recv_thread = threading.Thread(
+        target=receiver_loop,
+        args=(sock, stop_event)
+    )
     recv_thread.start()
 
+    # ---------- COMMAND LOOP ----------
     try:
         while True:
             cmd = input("> ").strip().lower()
 
             if cmd == "list":
                 send_json(sock, {"type": "LIST_USERS"})
-            
+
             elif cmd == "inbox":
                 send_json(sock, {"type": "INBOX"})
 
@@ -148,8 +174,23 @@ def main() -> None:
                 })
 
                 print("Uploading file...")
+
+                sent = 0
+                chunk_size = 4096
+
                 with open(path, "rb") as f:
-                    send_bytes(sock, f.read())
+                    while True:
+                        chunk = f.read(chunk_size)
+                        if not chunk:
+                            break
+
+                        send_bytes(sock, chunk)
+                        sent += len(chunk)
+
+                        percent = int((sent / file_size) * 100)
+                        print(f"\rUploading: {percent}%", end="", flush=True)
+
+                print("\nUpload complete.")
 
             elif cmd == "quit":
                 try:
@@ -162,17 +203,14 @@ def main() -> None:
                 print("Commands: list, send, inbox, get, quit")
 
     finally:
-        # Clean shutdown
         stop_event.set()
+
         try:
             sock.shutdown(socket.SHUT_RDWR)
         except Exception:
             pass
-        try:
-            sock.close()
-        except Exception:
-            pass
 
+        sock.close()
         recv_thread.join(timeout=2)
 
 
