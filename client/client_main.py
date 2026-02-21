@@ -33,6 +33,8 @@ def receiver_loop(sock: socket.socket, stop_event: threading.Event):
             received = 0
             chunk_size = 4096
 
+            last_percent = -1
+
             with open(out_path, "wb") as f:
                 while received < size:
                     chunk = sock.recv(min(chunk_size, size - received))
@@ -43,7 +45,10 @@ def receiver_loop(sock: socket.socket, stop_event: threading.Event):
                     received += len(chunk)
 
                     percent = int((received / size) * 100)
-                    print(f"\rDownloading: {percent}%", end="", flush=True)
+
+                    if last_percent != percent:
+                        print(f"\rDownloading: {percent}%", end="", flush=True)
+                        last_percent = percent
 
             print(f"\n Received '{filename}' from {sender}. Saved to {out_path}")
             print("> ", end="", flush=True)
@@ -58,6 +63,8 @@ def receiver_loop(sock: socket.socket, stop_event: threading.Event):
             received = 0
             chunk_size = 4096
 
+            last_percent = -1
+
             with open(out_path, "wb") as f:
                 while received < size:
                     chunk = sock.recv(min(chunk_size, size - received))
@@ -68,7 +75,10 @@ def receiver_loop(sock: socket.socket, stop_event: threading.Event):
                     received += len(chunk)
 
                     percent = int((received / size) * 100)
-                    print(f"\rDownloading: {percent}%", end="", flush=True)
+
+                    if percent != last_percent:
+                        print(f"\rDownloading: {percent}%", end="", flush=True)
+                        last_percent = percent
 
             print(f"\n⬇ Downloaded '{filename}' to {out_path}")
             print("> ", end="", flush=True)
