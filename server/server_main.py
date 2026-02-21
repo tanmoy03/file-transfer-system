@@ -1,15 +1,29 @@
+import os
+import time
 import socket
 import threading
 from typing import Dict, Tuple, Optional
 
-from common.wire import send_json, recv_json
+from common.wire import send_json, recv_json, recv_bytes, send_bytes
 
 HOST = "0.0.0.0"
 PORT = 5001
 
+STORAGE_DIR = "storage"
+LOG_PATH = "server_transfers.log"
+
 # username -> (socket, address)
 clients: Dict[str, Tuple[socket.socket, Tuple[str, int]]] = {}
 clients_lock = threading.Lock()
+
+def log_line(text: str) -> None:
+    ts = time.strftime("%Y-%m-%d %H:%M:%S")
+    with open(LOG_PATH, "a", encoding="utf-8") as f:
+        f.write(f"[{ts}] {text}\n")
+
+
+def safe_filename(name: str) -> str:
+    return os.path.basename(name)  # prevents ../ path traversal
 
 def handle_client(conn: socket.socket, addr: Tuple[str, int]) -> None:
     username: Optional[str] = None
@@ -45,6 +59,48 @@ def handle_client(conn: socket.socket, addr: Tuple[str, int]) -> None:
                     users = sorted(clients.keys())
                 send_json(conn, {"type": "USER_LIST", "users": users})
 
+            elif mtype == "SEND_FILE":
+                to_user = (msg.get("to") or "").strip()
+                filename = safe_filename(msg.get("filename") or "")
+                file_size = int(msg.get("file_size") or 0)
+
+                if not to_user or not filename or file_size <= 0:
+                    send_json(conn, {"type": "ERROR", "message": "Invalid SEND_FILE request"})
+                    continue
+
+                # Store under recipient folder
+                recipient_dir = os.path.join(STORAGE_DIR, to_user)
+                os.makedirs(recipient_dir, exist_ok=True)
+                out_path = os.path.join(recipient_dir, filename)
+
+                # Tell sender we're ready for bytes
+                send_json(conn, {"type": "READY"})
+
+                # Receive raw bytes
+                file_data = recv_bytes(conn, file_size)
+                with open(out_path, "wb") as f:
+                    f.write(file_data)
+
+                log_line(f"RECEIVED from={username} to={to_user} file={filename} size={file_size} path={out_path}")
+
+                # If recipient online, forward immediately
+                with clients_lock:
+                    target = clients.get(to_user)
+
+                if target:
+                    target_conn, _ = target
+                    send_json(target_conn, {
+                        "type": "INCOMING_FILE",
+                        "from": username,
+                        "filename": filename,
+                        "file_size": file_size
+                    })
+                    send_bytes(target_conn, file_data)
+                    log_line(f"FORWARDED from={username} to={to_user} file={filename} size={file_size}")
+                    send_json(conn, {"type": "FORWARDED", "to": to_user})
+                else:
+                    send_json(conn, {"type": "QUEUED", "to": to_user, "note": "Recipient offline; stored on server."})
+
             elif mtype == "QUIT":
                 send_json(conn, {"type": "BYE"})
                 return
@@ -76,6 +132,7 @@ def main() -> None:
     srv.listen()
 
     print(f"Server running on {HOST}:{PORT}")
+    os.makedirs(STORAGE_DIR, exist_ok=True)
 
     while True:
         conn, addr = srv.accept()
