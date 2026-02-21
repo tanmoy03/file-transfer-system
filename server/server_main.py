@@ -17,11 +17,20 @@ LOG_PATH = "server_transfers.log"
 clients: Dict[str, Tuple[socket.socket, Tuple[str, int]]] = {}
 clients_lock = threading.Lock()
 
+def broadcast(message: dict, exclude=None):
+    with clients_lock:
+        for user, (sock, _) in clients.items(): # sends JSON message to all connected clients
+            if sock == exclude:
+                continue
+            try:
+                send_json(sock, message)
+            except Exception:
+                pass 
+
 def log_line(text: str) -> None:
     ts = time.strftime("%Y-%m-%d %H:%M:%S")
     with open(LOG_PATH, "a", encoding="utf-8") as f:
         f.write(f"[{ts}] {text}\n")
-
 
 def safe_filename(name: str) -> str:
     return os.path.basename(name)  # prevents ../ path traversal
@@ -46,6 +55,12 @@ def handle_client(conn: socket.socket, addr: Tuple[str, int]) -> None:
                 send_json(conn, {"type": "ERROR", "message": "Username already in use"})
                 return
             clients[username] = (conn, addr)
+
+            broadcast({
+                "type": "USER_JOINED",
+                "username": username
+            }, exclude=conn)
+            
 
         send_json(conn, {"type": "LOGIN_OK", "username": username})
         print(f"[+] {username} connected from {addr}")
@@ -144,6 +159,7 @@ def handle_client(conn: socket.socket, addr: Tuple[str, int]) -> None:
     except Exception:
         # disconnected or parse error
         pass
+
     finally:
         if username:
             with clients_lock:
@@ -151,6 +167,11 @@ def handle_client(conn: socket.socket, addr: Tuple[str, int]) -> None:
                 if cur and cur[0] is conn:
                     clients.pop(username, None)
             print(f"[-] {username} disconnected")
+        
+        broadcast({
+            "type": "USER_LEFT", # informs other clients that this user has left before socket close
+            "username": username
+        })
 
         try:
             conn.close()
