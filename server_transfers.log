@@ -5,3 +5,9 @@
 [2026-02-21 16:35:29] RECEIVED from=bob to=alvce file=new.txt size=24 path=storage\alvce\new.txt
 [2026-02-21 16:47:59] RECEIVED from=alice to=bob file=new.txt size=24 path=storage\bob\new.txt
 [2026-02-21 16:47:59] FORWARDED from=alice to=bob file=new.txt size=24
+[2026-02-21 17:13:33] RECEIVED from=alice to=bob file=sonnet18.txt size=651 path=storage\bob\sonnet18.txt
+[2026-02-21 17:13:33] FORWARDED from=alice to=bob file=sonnet18.txt size=651
+[2026-02-21 17:32:12] RECEIVED from=alice to=bob file=dummy.pdf size=13264 path=storage\bob\dummy.pdf
+[2026-02-21 17:32:12] FORWARDED from=alice to=bob file=dummy.pdf size=13264
+[2026-02-21 20:45:39] RECEIVED from=bob to=alice file=dummy.pdf size=13264 path=storage\alice\dummy.pdf
+[2026-02-21 20:54:35] RECEIVED from=bob to=alice file=sonnet18.txt size=651 path=storage\alice\sonnet18.txt

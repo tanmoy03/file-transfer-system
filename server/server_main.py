@@ -56,10 +56,10 @@ def handle_client(conn: socket.socket, addr: Tuple[str, int]) -> None:
                 return
             clients[username] = (conn, addr)
 
-            broadcast({
-                "type": "USER_JOINED",
-                "username": username
-            }, exclude=conn)
+        broadcast({
+            "type": "USER_JOINED",
+            "username": username
+        }, exclude=conn)
             
 
         send_json(conn, {"type": "LOGIN_OK", "username": username})
@@ -168,10 +168,10 @@ def handle_client(conn: socket.socket, addr: Tuple[str, int]) -> None:
                     clients.pop(username, None)
             print(f"[-] {username} disconnected")
         
-        broadcast({
-            "type": "USER_LEFT", # informs other clients that this user has left before socket close
-            "username": username
-        })
+            broadcast({
+                "type": "USER_LEFT", # informs other clients that this user has left before socket close
+                "username": username
+            })
 
         try:
             conn.close()
