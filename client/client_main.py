@@ -4,13 +4,22 @@ import threading
 from common.wire import send_json, recv_json, send_bytes, recv_bytes
 
 PORT = 5001
-
 DOWNLOADS_DIR = "downloads"
 
-def receiver_loop(sock: socket.socket):
+
+def receiver_loop(sock: socket.socket, stop_event: threading.Event):
     os.makedirs(DOWNLOADS_DIR, exist_ok=True)
-    while True:
-        msg = recv_json(sock)
+
+    while not stop_event.is_set():
+        try:
+            msg = recv_json(sock)
+        except (ConnectionError, OSError):
+            # Socket closed / program shutting down
+            break
+        except Exception:
+            # Ignore unexpected decode/parse errors
+            continue
+
         mtype = msg.get("type")
 
         if mtype == "INCOMING_FILE":
@@ -18,7 +27,11 @@ def receiver_loop(sock: socket.socket):
             filename = os.path.basename(msg.get("filename") or "file.bin")
             size = int(msg.get("file_size") or 0)
 
-            data = recv_bytes(sock, size)
+            try:
+                data = recv_bytes(sock, size)
+            except (ConnectionError, OSError):
+                break
+
             out_path = os.path.join(DOWNLOADS_DIR, filename)
             with open(out_path, "wb") as f:
                 f.write(data)
@@ -33,6 +46,7 @@ def receiver_loop(sock: socket.socket):
         else:
             print(f"\n[SERVER] {msg}")
             print("> ", end="", flush=True)
+
 
 def main() -> None:
     server_ip = input("Server IP: ").strip()
@@ -51,42 +65,63 @@ def main() -> None:
         return
 
     print(f"Logged in as {resp.get('username')}. Commands: list, send, quit")
-    threading.Thread(target=receiver_loop, args=(sock,), daemon=True).start()
 
-    while True:
-        cmd = input("> ").strip().lower()
+    stop_event = threading.Event()
+    recv_thread = threading.Thread(target=receiver_loop, args=(sock, stop_event))
+    recv_thread.start()
 
-        if cmd == "list":
-            send_json(sock, {"type": "LIST_USERS"})
+    try:
+        while True:
+            cmd = input("> ").strip().lower()
 
-        elif cmd == "send":
-            to_user = input("Send to (username): ").strip()
-            path = input("File path: ").strip()
+            if cmd == "list":
+                send_json(sock, {"type": "LIST_USERS"})
 
-            if not os.path.isfile(path):
-                print("File not found.")
-                continue
+            elif cmd == "send":
+                to_user = input("Send to (username): ").strip()
+                path = input("File path: ").strip()
 
-            filename = os.path.basename(path)
-            file_size = os.path.getsize(path)
+                if not os.path.isfile(path):
+                    print("File not found.")
+                    continue
 
-            send_json(sock, {"type": "SEND_FILE", "to": to_user, "filename": filename, "file_size": file_size})
+                filename = os.path.basename(path)
+                file_size = os.path.getsize(path)
 
-            print("Uploading file...")
+                send_json(sock, {
+                    "type": "SEND_FILE",
+                    "to": to_user,
+                    "filename": filename,
+                    "file_size": file_size
+                })
 
-            with open(path, "rb") as f:
-                send_bytes(sock, f.read())
+                print("Uploading file...")
+                with open(path, "rb") as f:
+                    send_bytes(sock, f.read())
 
-            # The final FORWARDED/QUEUED response will arrive and be printed by receiver thread
+            elif cmd == "quit":
+                try:
+                    send_json(sock, {"type": "QUIT"})
+                except Exception:
+                    pass
+                break
 
-        elif cmd == "quit":
-            send_json(sock, {"type": "QUIT"})
-            # BYE might be printed by receiver thread; safe to close
+            else:
+                print("Commands: list, send, quit")
+
+    finally:
+        # Clean shutdown
+        stop_event.set()
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except Exception:
+            pass
+        try:
             sock.close()
-            return
+        except Exception:
+            pass
 
-        else:
-            print("Commands: list, send, quit")
+        recv_thread.join(timeout=2)
 
 
 if __name__ == "__main__":
