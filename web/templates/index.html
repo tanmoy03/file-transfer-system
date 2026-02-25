@@ -92,17 +92,6 @@
       {% endif %}
     {% endif %}
   </div>
-
-  <script>
-    const username = "{{ username or '' }}";
-    if (username) {
-      setInterval(() => {
-        const formData = new FormData();
-        formData.append("username", username);
-        fetch("/heartbeat", { method: "POST", body: formData });
-      }, 5000);
-    }
-  </script>
-
+  
 </body>
 </html>

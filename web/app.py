@@ -2,6 +2,11 @@ import os
 import uuid
 from pathlib import Path
 from flask import Flask, render_template, request, redirect, url_for, flash, send_file
+import threading
+import socket as pysocket
+
+connections_lock = threading.Lock()
+connections = {}  # username -> socket.socket
 
 from common.wire import send_json, recv_json, send_bytes, recv_bytes
 
@@ -22,6 +27,47 @@ DEFAULT_SERVER_PORT = 5001
 app = Flask(__name__)
 app.secret_key = "dev-secret-change-me"  # for flash messages
 
+def get_or_create_connection(username: str):
+    with connections_lock:
+        existing = connections.get(username)
+        if existing:
+            return existing
+
+    server_ip = get_server_ip()
+    if not server_ip:
+        raise RuntimeError("Server not found. Set FILE_SERVER_IP or enable discovery.")
+
+    s = pysocket.socket(pysocket.AF_INET, pysocket.SOCK_STREAM)
+    s.connect((server_ip, DEFAULT_SERVER_PORT))
+
+    send_json(s, {"type": "LOGIN", "username": username})
+    resp = recv_json(s)
+    if resp.get("type") != "LOGIN_OK":
+        s.close()
+        raise RuntimeError(f"Login failed: {resp}")
+
+    with connections_lock:
+        connections[username] = s
+
+    return s
+
+
+def close_connection(username: str):
+    with connections_lock:
+        s = connections.pop(username, None)
+    if s:
+        try:
+            send_json(s, {"type": "QUIT"})
+        except Exception:
+            pass
+        try:
+            s.shutdown(pysocket.SHUT_RDWR)
+        except Exception:
+            pass
+        try:
+            s.close()
+        except Exception:
+            pass
 
 def get_server_ip() -> str | None:
     # Prefer env var if provided (useful for demos)
@@ -49,7 +95,7 @@ def connect_and_login(username: str):
     send_json(sock, {"type": "LOGIN", "username": username})
     resp = recv_json(sock)
     if resp.get("type") != "LOGIN_OK":
-        sock.close()
+        sock = get_or_create_connection(username)
         raise RuntimeError(f"Login failed: {resp}")
 
     return sock, server_ip
@@ -149,7 +195,7 @@ def users():
     try:
         sock, server_ip = connect_and_login(username)
         resp = list_users(sock)
-        sock.close()
+        sock = get_or_create_connection(username)
     except Exception as e:
         flash(str(e), "error")
         return redirect(url_for("index"))
@@ -177,7 +223,7 @@ def send():
     try:
         sock, server_ip = connect_and_login(username)
         result = send_file_to_user(sock, to_user, temp_path)
-        sock.close()
+        sock = get_or_create_connection(username)
     except Exception as e:
         flash(str(e), "error")
         try:
@@ -194,21 +240,6 @@ def send():
     flash(f"Sent '{safe_name}' to {to_user}. Server says: {result}", "ok")
     return redirect(url_for("index"))
 
-@app.route("/heartbeat", methods=["POST"])
-def heartbeat():
-    username = request.form.get("username", "").strip()
-    if not username:
-        return ("", 204)
-
-    try:
-        sock, _ = connect_and_login(username)
-        send_json(sock, {"type": "HEARTBEAT"})
-        _ = recv_json(sock)  # OK
-        sock.close()
-        return ("", 204)
-    except Exception:
-        return ("", 204)
-
 @app.route("/inbox", methods=["POST"])
 def inbox():
     username = request.form.get("username", "").strip()
@@ -219,7 +250,7 @@ def inbox():
     try:
         sock, server_ip = connect_and_login(username)
         resp = inbox_list(sock)
-        sock.close()
+        sock = get_or_create_connection(username)
     except Exception as e:
         flash(str(e), "error")
         return redirect(url_for("index"))
@@ -242,13 +273,19 @@ def get_file():
     try:
         sock, server_ip = connect_and_login(username)
         downloaded = download_inbox_file(sock, filename, out_path)
-        sock.close()
+        sock = get_or_create_connection(username)
     except Exception as e:
         flash(str(e), "error")
         return redirect(url_for("index"))
 
     return send_file(downloaded, as_attachment=True, download_name=downloaded.name)
 
+@app.route("/logout", methods=["POST"])
+def logout():
+    username = request.form.get("username", "").strip()
+    if username:
+        close_connection(username)
+    return redirect(url_for("index"))
 
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=8000, debug=True)
