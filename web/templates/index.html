@@ -47,6 +47,13 @@
       </ul>
     {% endif %}
   </div>
+  
+  <form method="post" action="/logout" style="margin-top:10px;">
+    <input type="hidden" name="username" value="{{ username or '' }}">
+    <button type="submit">Logout</button>
+  </form>
+
+    
 
   <div class="card">
     <h3>2) Send File</h3>
@@ -92,6 +99,6 @@
       {% endif %}
     {% endif %}
   </div>
-  
+
 </body>
 </html>

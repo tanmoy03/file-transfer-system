@@ -1,20 +1,21 @@
 import os
 import uuid
-from pathlib import Path
-from flask import Flask, render_template, request, redirect, url_for, flash, send_file
+import socket
 import threading
-import socket as pysocket
+from pathlib import Path
 
-connections_lock = threading.Lock()
-connections = {}  # username -> socket.socket
+from flask import Flask, render_template, request, redirect, url_for, flash, send_file
 
 from common.wire import send_json, recv_json, send_bytes, recv_bytes
 
-# If you already implemented UDP server discovery:
+# If you implemented UDP discovery:
 try:
     from common.discovery import find_server
 except Exception:
     find_server = None
+
+
+DEFAULT_SERVER_PORT = 5001
 
 APP_ROOT = Path(__file__).resolve().parent
 UPLOAD_DIR = APP_ROOT / "uploads"
@@ -22,55 +23,29 @@ DOWNLOADS_DIR = APP_ROOT / "downloads_web"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
-DEFAULT_SERVER_PORT = 5001
-
 app = Flask(__name__)
-app.secret_key = "dev-secret-change-me"  # for flash messages
-
-def get_or_create_connection(username: str):
-    with connections_lock:
-        existing = connections.get(username)
-        if existing:
-            return existing
-
-    server_ip = get_server_ip()
-    if not server_ip:
-        raise RuntimeError("Server not found. Set FILE_SERVER_IP or enable discovery.")
-
-    s = pysocket.socket(pysocket.AF_INET, pysocket.SOCK_STREAM)
-    s.connect((server_ip, DEFAULT_SERVER_PORT))
-
-    send_json(s, {"type": "LOGIN", "username": username})
-    resp = recv_json(s)
-    if resp.get("type") != "LOGIN_OK":
-        s.close()
-        raise RuntimeError(f"Login failed: {resp}")
-
-    with connections_lock:
-        connections[username] = s
-
-    return s
+app.secret_key = "dev-secret-change-me"
 
 
-def close_connection(username: str):
-    with connections_lock:
-        s = connections.pop(username, None)
-    if s:
-        try:
-            send_json(s, {"type": "QUIT"})
-        except Exception:
-            pass
-        try:
-            s.shutdown(pysocket.SHUT_RDWR)
-        except Exception:
-            pass
-        try:
-            s.close()
-        except Exception:
-            pass
+# -----------------------------
+# Connection manager (persistent per username)
+# -----------------------------
+connections_lock = threading.Lock()
+connections: dict[str, socket.socket] = {}
+
+user_locks_lock = threading.Lock()
+user_locks: dict[str, threading.Lock] = {}
+
+
+def _get_user_lock(username: str) -> threading.Lock:
+    with user_locks_lock:
+        if username not in user_locks:
+            user_locks[username] = threading.Lock()
+        return user_locks[username]
+
 
 def get_server_ip() -> str | None:
-    # Prefer env var if provided (useful for demos)
+    # Prefer explicit config (best for demos)
     env_ip = os.environ.get("FILE_SERVER_IP")
     if env_ip:
         return env_ip.strip()
@@ -82,31 +57,88 @@ def get_server_ip() -> str | None:
     return None
 
 
-def connect_and_login(username: str):
-    import socket
-
+def _login_new_socket(username: str) -> socket.socket:
     server_ip = get_server_ip()
     if not server_ip:
-        raise RuntimeError("Server not found. Set FILE_SERVER_IP env var or enable UDP discovery.")
+        raise RuntimeError("Server not found. Set FILE_SERVER_IP or enable UDP discovery.")
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect((server_ip, DEFAULT_SERVER_PORT))
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.connect((server_ip, DEFAULT_SERVER_PORT))
 
-    send_json(sock, {"type": "LOGIN", "username": username})
-    resp = recv_json(sock)
+    send_json(s, {"type": "LOGIN", "username": username})
+    resp = recv_json(s)
     if resp.get("type") != "LOGIN_OK":
-        sock = get_or_create_connection(username)
+        s.close()
         raise RuntimeError(f"Login failed: {resp}")
 
-    return sock, server_ip
+    return s
 
 
-def list_users(sock):
+def get_or_create_connection(username: str) -> socket.socket:
+    """
+    Returns a persistent socket for this username.
+    If existing socket is broken, it reconnects.
+    """
+    username = username.strip()
+    if not username:
+        raise RuntimeError("Username required.")
+
+    with connections_lock:
+        s = connections.get(username)
+
+    if s:
+        # Socket exists: check if it is still alive by sending a lightweight request.
+        try:
+            # Use LIST_USERS as a safe 'ping' (server already supports it)
+            send_json(s, {"type": "LIST_USERS"})
+            _ = recv_json(s)
+            return s
+        except Exception:
+            # Dead socket -> close and recreate
+            close_connection(username)
+
+    # Create new socket + login
+    s = _login_new_socket(username)
+    with connections_lock:
+        connections[username] = s
+    return s
+
+
+def close_connection(username: str) -> None:
+    with connections_lock:
+        s = connections.pop(username, None)
+
+    if s:
+        try:
+            send_json(s, {"type": "QUIT"})
+        except Exception:
+            pass
+        try:
+            s.shutdown(socket.SHUT_RDWR)
+        except Exception:
+            pass
+        try:
+            s.close()
+        except Exception:
+            pass
+
+
+# -----------------------------
+# Protocol operations (must hold user lock)
+# -----------------------------
+def op_list_users(sock: socket.socket) -> list[str]:
     send_json(sock, {"type": "LIST_USERS"})
-    return recv_json(sock)  # expects USER_LIST
+    resp = recv_json(sock)
+    if resp.get("type") != "USER_LIST":
+        raise RuntimeError(f"Unexpected response: {resp}")
+    return resp.get("users", [])
 
 
-def send_file_to_user(sock, to_user: str, file_path: Path):
+def op_send_file(sock: socket.socket, to_user: str, file_path: Path) -> dict:
+    to_user = to_user.strip()
+    if not to_user:
+        raise RuntimeError("Recipient required.")
+
     filename = file_path.name
     file_size = file_path.stat().st_size
 
@@ -121,8 +153,7 @@ def send_file_to_user(sock, to_user: str, file_path: Path):
     if ready.get("type") != "READY":
         raise RuntimeError(f"Server not ready: {ready}")
 
-    # Stream bytes
-    sent = 0
+    # Stream bytes in chunks
     chunk_size = 4096
     with open(file_path, "rb") as f:
         while True:
@@ -130,19 +161,25 @@ def send_file_to_user(sock, to_user: str, file_path: Path):
             if not chunk:
                 break
             send_bytes(sock, chunk)
-            sent += len(chunk)
 
-    # The server should respond with FORWARDED/QUEUED (your server sends one of these)
+    # Expect server final response (FORWARDED or QUEUED)
     final = recv_json(sock)
     return final
 
 
-def inbox_list(sock):
+def op_inbox_list(sock: socket.socket) -> list[str]:
     send_json(sock, {"type": "INBOX"})
-    return recv_json(sock)  # expects INBOX_LIST
+    resp = recv_json(sock)
+    if resp.get("type") != "INBOX_LIST":
+        raise RuntimeError(f"Unexpected response: {resp}")
+    return resp.get("files", [])
 
 
-def download_inbox_file(sock, filename: str, out_path: Path):
+def op_get_file(sock: socket.socket, filename: str, out_path: Path) -> Path:
+    filename = os.path.basename(filename.strip())
+    if not filename:
+        raise RuntimeError("Filename required.")
+
     send_json(sock, {"type": "GET_FILE", "filename": filename})
 
     hdr = recv_json(sock)
@@ -153,32 +190,22 @@ def download_inbox_file(sock, filename: str, out_path: Path):
 
     size = int(hdr.get("file_size") or 0)
     if size <= 0:
-        raise RuntimeError("Invalid file size from server")
+        raise RuntimeError("Invalid file size from server.")
 
-    # Receive exact bytes
     data = recv_bytes(sock, size)
+
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "wb") as f:
         f.write(data)
 
-    # If you implemented delete-after-download confirmation:
-    # server might send FILE_CONSUMED afterwards; ignore if not present.
-    try:
-        sock.settimeout(0.2)
-        maybe = recv_json(sock)
-        # ignore
-        _ = maybe
-    except Exception:
-        pass
-    finally:
-        try:
-            sock.settimeout(None)
-        except Exception:
-            pass
-
+    # If your server sends FILE_CONSUMED afterwards, we can optionally read it
+    # but we don't require it.
     return out_path
 
 
+# -----------------------------
+# Routes
+# -----------------------------
 @app.route("/", methods=["GET"])
 def index():
     server_ip = get_server_ip()
@@ -193,15 +220,15 @@ def users():
         return redirect(url_for("index"))
 
     try:
-        sock, server_ip = connect_and_login(username)
-        resp = list_users(sock)
         sock = get_or_create_connection(username)
+        lock = _get_user_lock(username)
+        with lock:
+            users_list = op_list_users(sock)
     except Exception as e:
         flash(str(e), "error")
         return redirect(url_for("index"))
 
-    users = resp.get("users", []) if resp.get("type") == "USER_LIST" else []
-    return render_template("index.html", server_ip=server_ip, username=username, users=users)
+    return render_template("index.html", server_ip=get_server_ip(), username=username, users=users_list)
 
 
 @app.route("/send", methods=["POST"])
@@ -214,16 +241,16 @@ def send():
         flash("Username, recipient, and file are required.", "error")
         return redirect(url_for("index"))
 
-    # Save upload temporarily
     safe_name = os.path.basename(up.filename)
     temp_name = f"{uuid.uuid4().hex}_{safe_name}"
     temp_path = UPLOAD_DIR / temp_name
     up.save(temp_path)
 
     try:
-        sock, server_ip = connect_and_login(username)
-        result = send_file_to_user(sock, to_user, temp_path)
         sock = get_or_create_connection(username)
+        lock = _get_user_lock(username)
+        with lock:
+            result = op_send_file(sock, to_user, temp_path)
     except Exception as e:
         flash(str(e), "error")
         try:
@@ -237,26 +264,27 @@ def send():
     except Exception:
         pass
 
-    flash(f"Sent '{safe_name}' to {to_user}. Server says: {result}", "ok")
+    flash(f"Sent '{safe_name}' to {to_user}. Server: {result}", "ok")
     return redirect(url_for("index"))
+
 
 @app.route("/inbox", methods=["POST"])
 def inbox():
     username = request.form.get("username", "").strip()
     if not username:
-        flash("Enter the username whose inbox you want to view.", "error")
+        flash("Enter a username to view inbox.", "error")
         return redirect(url_for("index"))
 
     try:
-        sock, server_ip = connect_and_login(username)
-        resp = inbox_list(sock)
         sock = get_or_create_connection(username)
+        lock = _get_user_lock(username)
+        with lock:
+            files = op_inbox_list(sock)
     except Exception as e:
         flash(str(e), "error")
         return redirect(url_for("index"))
 
-    files = resp.get("files", []) if resp.get("type") == "INBOX_LIST" else []
-    return render_template("index.html", server_ip=server_ip, username=username, inbox_files=files)
+    return render_template("index.html", server_ip=get_server_ip(), username=username, inbox_files=files)
 
 
 @app.route("/get", methods=["POST"])
@@ -271,21 +299,26 @@ def get_file():
     out_path = DOWNLOADS_DIR / username / os.path.basename(filename)
 
     try:
-        sock, server_ip = connect_and_login(username)
-        downloaded = download_inbox_file(sock, filename, out_path)
         sock = get_or_create_connection(username)
+        lock = _get_user_lock(username)
+        with lock:
+            downloaded = op_get_file(sock, filename, out_path)
     except Exception as e:
         flash(str(e), "error")
         return redirect(url_for("index"))
 
     return send_file(downloaded, as_attachment=True, download_name=downloaded.name)
 
+
 @app.route("/logout", methods=["POST"])
 def logout():
     username = request.form.get("username", "").strip()
     if username:
         close_connection(username)
+        flash(f"Logged out: {username}", "ok")
     return redirect(url_for("index"))
 
+
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=8000, debug=True)
+    # Run single-process for demo; multi-process servers would need a different connection strategy
+    app.run(host="127.0.0.1", port=8000, debug=True, threaded=True)

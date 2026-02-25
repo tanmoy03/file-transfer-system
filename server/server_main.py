@@ -17,9 +17,6 @@ LOG_PATH = "server_transfers.log"
 clients: Dict[str, Tuple[socket.socket, Tuple[str, int]]] = {}
 clients_lock = threading.Lock()
 
-last_seen = {}
-LAST_SEEN_WINDOW = 15
-
 def broadcast(message: dict, exclude=None):
     with clients_lock:
         for user, (sock, _) in clients.items(): # sends JSON message to all connected clients
@@ -66,7 +63,6 @@ def handle_client(conn: socket.socket, addr: Tuple[str, int]) -> None:
             
 
         send_json(conn, {"type": "LOGIN_OK", "username": username})
-        last_seen[username] = time.time()
         print(f"[+] {username} connected from {addr}")
 
         # --- Main loop ---
@@ -75,15 +71,8 @@ def handle_client(conn: socket.socket, addr: Tuple[str, int]) -> None:
             mtype = msg.get("type")
 
             if mtype == "LIST_USERS":
-                now = time.time()
                 with clients_lock:
-                    # sockets-connected users
-                    online = set(clients.keys())
-
-                # recently active users (web heartbeats)
-                recent = {u for u, ts in last_seen.items() if now - ts <= LAST_SEEN_WINDOW}
-
-                users = sorted(online | recent)
+                    users = sorted(clients.keys())
                 send_json(conn, {"type": "USER_LIST", "users": users})
 
             elif mtype == "INBOX":
@@ -175,10 +164,6 @@ def handle_client(conn: socket.socket, addr: Tuple[str, int]) -> None:
                 else:
                     send_json(conn, {"type": "QUEUED", "to": to_user, "note": "Recipient offline; stored on server."})
 
-            elif mtype == "HEARTBEAT":
-                last_seen[username] = time.time()
-                send_json(conn, {"type": "OK"})
-
             elif mtype == "QUIT":
                 send_json(conn, {"type": "BYE"})
                 return
@@ -191,17 +176,21 @@ def handle_client(conn: socket.socket, addr: Tuple[str, int]) -> None:
         pass
 
     finally:
+        # if username:
+        #     with clients_lock:
+        #         cur = clients.get(username)
+        #         if cur and cur[0] is conn:
+        #             clients.pop(username, None)
+        #     print(f"[-] {username} disconnected")
+        
+        #     broadcast({
+        #         "type": "USER_LEFT", # informs other clients that this user has left before socket close
+        #         "username": username
+        #     })
+
         if username:
             with clients_lock:
-                cur = clients.get(username)
-                if cur and cur[0] is conn:
-                    clients.pop(username, None)
-            print(f"[-] {username} disconnected")
-        
-            broadcast({
-                "type": "USER_LEFT", # informs other clients that this user has left before socket close
-                "username": username
-            })
+                clients.pop(username, None)
 
         try:
             conn.close()
