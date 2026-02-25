@@ -80,7 +80,7 @@ def receiver_loop(sock: socket.socket, stop_event: threading.Event):
                         print(f"\rDownloading: {percent}%", end="", flush=True)
                         last_percent = percent
 
-            print(f"\n⬇ Downloaded '{filename}' to {out_path}")
+            print(f"\n Downloaded '{filename}' to {out_path}")
             print("> ", end="", flush=True)
 
         elif mtype == "FILE_CONSUMED":
