@@ -1,0 +1,97 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>File Transfer Web UI</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; max-width: 900px; }
+    .card { border: 1px solid #ddd; padding: 16px; border-radius: 10px; margin-bottom: 16px; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; }
+    input, select, button { padding: 8px; }
+    .msg { padding: 10px; border-radius: 8px; margin: 10px 0; }
+    .ok { background: #e8fff0; border: 1px solid #b6f2cd; }
+    .error { background: #ffecec; border: 1px solid #ffb7b7; }
+    code { background: #f6f6f6; padding: 2px 6px; border-radius: 6px; }
+  </style>
+</head>
+<body>
+
+  <h2>Multi-Client File Transfer (Web UI)</h2>
+  <p>
+    Server discovery: <code>{{ server_ip or "not found (set FILE_SERVER_IP env var or enable discovery)" }}</code>
+  </p>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for cat, text in messages %}
+        <div class="msg {{ 'ok' if cat=='ok' else 'error' }}">{{ text }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <div class="card">
+    <h3>1) List Online Users</h3>
+    <form method="post" action="/users">
+      <div class="row">
+        <input name="username" placeholder="Your username (login)" value="{{ username or '' }}" />
+        <button type="submit">List Users</button>
+      </div>
+    </form>
+
+    {% if users %}
+      <p><b>Online:</b></p>
+      <ul>
+        {% for u in users %}
+          <li>{{ u }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3>2) Send File</h3>
+    <form method="post" action="/send" enctype="multipart/form-data">
+      <div class="row">
+        <input name="username" placeholder="Sender username" value="{{ username or '' }}" />
+        <input name="to_user" placeholder="Recipient username" />
+        <input type="file" name="file" />
+        <button type="submit">Send</button>
+      </div>
+    </form>
+    <p style="font-size: 0.9em;">
+      Tip: sender username must not be actively connected elsewhere at the same time (server enforces unique usernames).
+    </p>
+  </div>
+
+  <div class="card">
+    <h3>3) Inbox (Offline Files)</h3>
+    <form method="post" action="/inbox">
+      <div class="row">
+        <input name="username" placeholder="Username (inbox owner)" value="{{ username or '' }}" />
+        <button type="submit">View Inbox</button>
+      </div>
+    </form>
+
+    {% if inbox_files is defined %}
+      <p><b>Files waiting:</b></p>
+      {% if inbox_files %}
+        <ul>
+          {% for f in inbox_files %}
+            <li>
+              {{ f }}
+              <form method="post" action="/get" style="display:inline;">
+                <input type="hidden" name="username" value="{{ username }}" />
+                <input type="hidden" name="filename" value="{{ f }}" />
+                <button type="submit">Download</button>
+              </form>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p>(empty)</p>
+      {% endif %}
+    {% endif %}
+  </div>
+
+</body>
+</html>
