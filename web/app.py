@@ -194,6 +194,20 @@ def send():
     flash(f"Sent '{safe_name}' to {to_user}. Server says: {result}", "ok")
     return redirect(url_for("index"))
 
+@app.route("/heartbeat", methods=["POST"])
+def heartbeat():
+    username = request.form.get("username", "").strip()
+    if not username:
+        return ("", 204)
+
+    try:
+        sock, _ = connect_and_login(username)
+        send_json(sock, {"type": "HEARTBEAT"})
+        _ = recv_json(sock)  # OK
+        sock.close()
+        return ("", 204)
+    except Exception:
+        return ("", 204)
 
 @app.route("/inbox", methods=["POST"])
 def inbox():
