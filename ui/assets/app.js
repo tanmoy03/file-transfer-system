@@ -1,5 +1,10 @@
 (() => {
-  const BACKEND_BASE = "http://172.20.10.3:8000";
+  const BACKEND_BASE = "http://172.20.10.3:8000"; // your server laptop IP
+  const TOKEN_KEY = "fs_token";
+  const USER_KEY = "fs_user";
+
+  let authToken = localStorage.getItem(TOKEN_KEY) || "";
+  let username = localStorage.getItem(USER_KEY) || "";
 
   // Validation constants
   const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
@@ -53,10 +58,84 @@
     }[c]));
   }
 
+  function clearAuth() {
+    authToken = "";
+    username = "";
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+  }
+
+  async function ensureLogin(force = false) {
+    if (!force && authToken && authToken.trim().length > 0) return true;
+
+    const u = prompt("Enter username to login:");
+    if (!u) return false;
+
+    try {
+      const res = await fetch(`${BACKEND_BASE}/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: u.trim() }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast("error", data.error || "Login failed");
+        return false;
+      }
+
+      authToken = data.token || "";
+      username = data.username || u.trim();
+
+      if (!authToken) {
+        toast("error", "Login did not return a token.");
+        return false;
+      }
+
+      localStorage.setItem(TOKEN_KEY, authToken);
+      localStorage.setItem(USER_KEY, username);
+      toast("ok", `Logged in as ${username}`);
+      return true;
+    } catch (e) {
+      toast("error", `Login error: ${e}`);
+      return false;
+    }
+  }
+
+  function authHeaders(extra = {}) {
+    return {
+      ...extra,
+      Authorization: `Bearer ${authToken}`,
+    };
+  }
+
+  // Centralized fetch that:
+  // 1) attaches token
+  // 2) if 401 happens, clears token and forces re-login once
+  async function apiFetch(path, options = {}) {
+    const opts = { ...options };
+    opts.headers = authHeaders(opts.headers || {});
+
+    let res = await fetch(`${BACKEND_BASE}${path}`, opts);
+
+    if (res.status === 401) {
+      clearAuth();
+      const ok = await ensureLogin(true);
+      if (!ok) return res;
+      opts.headers = authHeaders(options.headers || {});
+      res = await fetch(`${BACKEND_BASE}${path}`, opts);
+    }
+    return res;
+  }
+
   async function pingBackend() {
     try {
-      const res = await fetch(`${BACKEND_BASE}/files`, { method: "GET" });
+      const ok = await ensureLogin();
+      if (!ok) return;
+
+      const res = await apiFetch("/files", { method: "GET" });
       if (!res.ok) return toast("error", `Backend reachable but returned ${res.status} on GET /files`);
+
       const data = await res.json();
       toast("ok", `Backend OK. ${Array.isArray(data) ? data.length : "?"} file(s) listed.`);
     } catch (err) {
@@ -176,10 +255,17 @@
     selectedList.querySelectorAll("[data-remove]").forEach(b => b.addEventListener("click", () => removeOne(b.dataset.remove)));
     selectedList.querySelectorAll("[data-cancel]").forEach(b => b.addEventListener("click", () => cancelUpload(b.dataset.cancel)));
     selectedList.querySelectorAll("[data-retry]").forEach(b => b.addEventListener("click", () => retryUpload(b.dataset.retry)));
-    selectedList.querySelectorAll("[data-uploadone]").forEach(b => b.addEventListener("click", () => startUploadOne(b.dataset.uploadone)));
+    selectedList.querySelectorAll("[data-uploadone]").forEach(b => b.addEventListener("click", async () => {
+      const ok = await ensureLogin();
+      if (!ok) return;
+      startUploadOne(b.dataset.uploadone);
+    }));
   }
 
-  function startUploadAllValid() {
+  async function startUploadAllValid() {
+    const ok = await ensureLogin();
+    if (!ok) return;
+
     const ids = selected.filter(x => x.ok && ["queued","failed","canceled"].includes(x.state)).map(x => x.id);
     if (!ids.length) return toast("error", "No valid queued files to upload.");
     uploadSequential(ids);
@@ -221,9 +307,12 @@
   function uploadOne(item) {
     return new Promise((resolve) => {
       item.state = "uploading"; item.progress = 0; item.errorText = ""; item.result = null;
+
       const xhr = new XMLHttpRequest();
       item.xhr = xhr;
+
       xhr.open("POST", `${BACKEND_BASE}/files`);
+      xhr.setRequestHeader("Authorization", `Bearer ${authToken}`);
 
       xhr.upload.onprogress = (evt) => {
         if (evt.lengthComputable) {
@@ -234,6 +323,16 @@
 
       xhr.onload = () => {
         item.xhr = null;
+
+        if (xhr.status === 401) {
+          // Token invalid/missing (rare now, but handle cleanly)
+          clearAuth();
+          item.state = "failed";
+          item.errorText = "Not logged in. Please refresh and login again.";
+          toast("error", "Session expired. Refresh and login again.");
+          return resolve();
+        }
+
         if (xhr.status >= 200 && xhr.status < 300) {
           try {
             item.result = JSON.parse(xhr.responseText);
@@ -245,7 +344,8 @@
             toast("error", `Upload parse error: ${item.file.name}`);
           }
         } else {
-          item.state = "failed"; item.errorText = `HTTP ${xhr.status}: ${xhr.responseText || "Upload failed"}`;
+          item.state = "failed";
+          item.errorText = `HTTP ${xhr.status}: ${xhr.responseText || "Upload failed"}`;
           toast("error", `Upload failed: ${item.file.name} (HTTP ${xhr.status})`);
         }
         resolve();
@@ -275,8 +375,12 @@
   // ---------- File list ----------
   async function refreshFiles() {
     try {
-      const res = await fetch(`${BACKEND_BASE}/files`);
+      const ok = await ensureLogin();
+      if (!ok) return;
+
+      const res = await apiFetch("/files", { method: "GET" });
       if (!res.ok) return toast("error", `Failed to load files: HTTP ${res.status}`);
+
       const data = await res.json();
       lastFiles = Array.isArray(data) ? data : [];
       renderFiles();
@@ -299,11 +403,12 @@
       const name = f.filename || f.name || f.id;
       const size = typeof f.size === "number" ? formatBytes(f.size) : "—";
       const uploaded = f.uploaded_at ? new Date(f.uploaded_at).toLocaleString() : "—";
+      const owner = f.owner ? ` · Owner: ${escapeHtml(f.owner)}` : "";
 
       row.innerHTML = `
         <div class="file-left">
           <div class="file-name" title="${escapeHtml(name)}">${escapeHtml(name)}</div>
-          <div class="file-meta">${size} · Uploaded: ${escapeHtml(uploaded)}</div>
+          <div class="file-meta">${size} · Uploaded: ${escapeHtml(uploaded)}${owner}</div>
         </div>
         <div class="file-actions">
           <button class="btn btn-small" data-copy="${escapeHtml(f.id)}">Copy link</button>
@@ -320,20 +425,21 @@
   }
 
   function downloadFile(id) {
-    window.open(`${BACKEND_BASE}/files/${encodeURIComponent(id)}/download`, "_blank");
+    // Download in new tab; auth-protected downloads generally work if the server doesn't require headers.
+    // Since we DO require headers, this endpoint will 401 in a raw browser open.
+    // Easiest fix (for now): make download NOT require auth OR implement a signed download URL.
+    // For assignment simplicity, we temporarily allow download via token in querystring:
+    const url = `${BACKEND_BASE}/files/${encodeURIComponent(id)}/download?token=${encodeURIComponent(authToken)}`;
+    window.open(url, "_blank");
   }
 
   async function copyLink(id) {
-    // If you later add POST /files/{id}/share, we can use it.
-    // For now, copy download link (works reliably).
-    const downloadUrl = `${BACKEND_BASE}/files/${encodeURIComponent(id)}/download`;
-
+    const url = `${BACKEND_BASE}/files/${encodeURIComponent(id)}/download?token=${encodeURIComponent(authToken)}`;
     try {
-      await navigator.clipboard.writeText(downloadUrl);
+      await navigator.clipboard.writeText(url);
       toast("ok", "Download link copied to clipboard.");
     } catch {
-      // fallback: prompt
-      window.prompt("Copy this link:", downloadUrl);
+      window.prompt("Copy this link:", url);
       toast("ok", "Copy the link from the prompt.");
     }
   }
@@ -341,7 +447,10 @@
   async function deleteFile(id) {
     if (!confirm("Delete this file?")) return;
     try {
-      const res = await fetch(`${BACKEND_BASE}/files/${encodeURIComponent(id)}`, { method: "DELETE" });
+      const ok = await ensureLogin();
+      if (!ok) return;
+
+      const res = await apiFetch(`/files/${encodeURIComponent(id)}`, { method: "DELETE" });
       if (!res.ok) return toast("error", `Delete failed: HTTP ${res.status}`);
       toast("ok", "File deleted.");
       refreshFiles();
@@ -374,8 +483,13 @@
   dropzone.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") fileInput.click(); });
 
   // init
-  renderSelected();
-  updateUploadButton();
-  pingBackend();
-  refreshFiles();
+  (async () => {
+    renderSelected();
+    updateUploadButton();
+    const ok = await ensureLogin();
+    if (ok) {
+      await pingBackend();
+      await refreshFiles();
+    }
+  })();
 })();
