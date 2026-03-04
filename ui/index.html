@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>File Sharing Frontend</title>
+  <link rel="stylesheet" href="./assets/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div>
+        <h1>File Sharing</h1>
+        <p class="sub">Frontend UI (local dev) · API: <code id="backendUrlLabel"></code></p>
+      </div>
+      <div class="header-actions">
+        <button id="btnPing" class="btn btn-secondary">Ping backend</button>
+      </div>
+    </header>
+
+    <main class="grid">
+      <!-- Upload -->
+      <section class="card">
+        <h2>Upload</h2>
+        <p class="muted">Drag & drop files here or use the file picker. Upload uses <code>POST /files</code>.</p>
+
+        <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="File dropzone">
+          <div class="dz-title">Drop files here</div>
+          <div class="dz-sub">or click to choose files</div>
+          <input id="fileInput" class="file-input" type="file" multiple />
+        </div>
+
+        <div class="row">
+          <button id="btnClear" class="btn btn-danger" type="button">Clear selection</button>
+          <button id="btnUpload" class="btn" type="button">Upload valid files</button>
+          <div class="spacer"></div>
+          <div class="hint">
+            Max size: <span id="maxSizeLabel"></span> · Allowed: <span id="typesLabel"></span>
+          </div>
+        </div>
+
+        <h3 class="section-title">Selected files</h3>
+        <div id="selectedList" class="list"></div>
+      </section>
+
+      <!-- Files -->
+      <section class="card">
+        <div class="row" style="margin-top:0">
+          <h2 style="margin:0">Files</h2>
+          <div class="spacer"></div>
+          <button id="btnRefreshFiles" class="btn btn-secondary" type="button">Refresh</button>
+        </div>
+        <p class="muted">Loaded from <code>GET /files</code>. Actions: Download, Delete.</p>
+        <div id="filesList" class="files"></div>
+      </section>
+
+      <!-- Status -->
+      <section class="card full">
+        <h2>Status</h2>
+        <div id="alerts" class="alerts"></div>
+        <div class="small muted">API should be running on <code>http://127.0.0.1:8000</code>.</div>
+      </section>
+    </main>
+
+    <footer class="footer"><span>CS Project · UI</span></footer>
+  </div>
+  <div id="toasts" class="toast-wrap"></div>
+  <script src="./assets/app.js"></script>
+</body>
+</html>

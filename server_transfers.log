@@ -31,13 +31,3 @@
 [2026-02-25 12:27:52] RECEIVED from=Tanmoy to=Tobi file=dummy.pdf size=13264 path=storage\Tobi\dummy.pdf
 [2026-02-25 12:27:52] FORWARDED from=Tanmoy to=Tobi file=dummy.pdf size=13264
 [2026-02-25 13:08:07] RECEIVED from=Tanmoy to=Tobi file=bc62132553294c8d9414b64b2f452f88_fastapi-1.png size=274434 path=storage\Tobi\bc62132553294c8d9414b64b2f452f88_fastapi-1.png
-[2026-02-25 14:11:25] RECEIVED from=Tobi to=Tanmoy file=37d6cdb3e118464a85043aa74beb4d27_Lecture-10.pdf size=286081 path=storage\Tanmoy\37d6cdb3e118464a85043aa74beb4d27_Lecture-10.pdf
-[2026-02-25 14:11:25] FORWARDED from=Tobi to=Tanmoy file=37d6cdb3e118464a85043aa74beb4d27_Lecture-10.pdf size=286081
-[2026-02-25 14:12:41] RECEIVED from=Tanmoy to=Tobi file=4046865424db410ba503cc2cd0ab7716_fastapi-1.png size=274434 path=storage\Tobi\4046865424db410ba503cc2cd0ab7716_fastapi-1.png
-[2026-02-25 14:12:41] FORWARDED from=Tanmoy to=Tobi file=4046865424db410ba503cc2cd0ab7716_fastapi-1.png size=274434
-[2026-02-25 14:12:53] RECEIVED from=Tanmoy to=Tobi file=74ab5e8a23dd4a579d1b26a333868881_Tech_Stack_QA_Tanmoy_Debnath.docx size=28267 path=storage\Tobi\74ab5e8a23dd4a579d1b26a333868881_Tech_Stack_QA_Tanmoy_Debnath.docx
-[2026-02-25 14:12:53] FORWARDED from=Tanmoy to=Tobi file=74ab5e8a23dd4a579d1b26a333868881_Tech_Stack_QA_Tanmoy_Debnath.docx size=28267
-[2026-02-25 14:17:29] RECEIVED from=Tanmoy to=Tobi file=11mb.pdf size=11441499 path=storage\Tobi\11mb.pdf
-[2026-02-25 14:19:16] RECEIVED from=Tobi to=Tanmoy file=99845d074afe45f0b8a10aa3c09e8c91_University-College-Cork-logo.pdf size=81114 path=storage\Tanmoy\99845d074afe45f0b8a10aa3c09e8c91_University-College-Cork-logo.pdf
-[2026-02-25 14:19:16] FORWARDED from=Tobi to=Tanmoy file=99845d074afe45f0b8a10aa3c09e8c91_University-College-Cork-logo.pdf size=81114
-[2026-02-25 14:23:00] DELIVERED and DELETED file=37d6cdb3e118464a85043aa74beb4d27_Lecture-10.pdf user=Tanmoy
