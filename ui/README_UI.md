@@ -4,10 +4,9 @@
 - Python 3.x installed
 - Backend API running from this repo (Flask)
 
-
 ## Install dependencies
 '''powershell
-python -m pip install flask flask-cors
+pip install flask-cors
 
 ## Run (Windows)
 Open 2 terminals.

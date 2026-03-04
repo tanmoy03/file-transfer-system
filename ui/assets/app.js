@@ -1,5 +1,5 @@
 (() => {
-  const BACKEND_BASE = "http://127.0.0.1:8000";
+  const BACKEND_BASE = "http://172.20.10.3:8000";
 
   // Validation constants
   const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
