@@ -170,6 +170,59 @@ def delete_file(file_id: str):
 
     return jsonify({"ok": True, "deleted": file_id}), 200
 
+@app.post("/files/<file_id>/send")
+@require_auth
+def send_file_to_user(file_id: str):
+    data = request.get_json(silent=True) or {}
+    recipient = (data.get("to") or "").strip()
+
+    if not recipient:
+        return jsonify({"error": "Recipient username required"}), 400
+
+    if recipient not in USERS:
+        return jsonify({"error": "User does not exist"}), 404
+
+    meta = FILES.get(file_id)
+    if not meta:
+        return jsonify({"error": "File not found"}), 404
+
+    # Only owner can send
+    if meta.get("owner") != request.username:
+        return jsonify({"error": "Forbidden"}), 403
+
+    src_path = Path(meta["saved_path"])
+    if not src_path.exists():
+        return jsonify({"error": "File missing"}), 404
+
+    # Create recipient directory
+    dest_dir = STORAGE_DIR / recipient
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    new_id = uuid.uuid4().hex
+    dest_filename = meta["filename"]
+    dest_path = dest_dir / f"{new_id}_{dest_filename}"
+
+    # Copy file
+    import shutil
+    shutil.copy2(src_path, dest_path)
+
+    new_meta = {
+        "id": new_id,
+        "filename": dest_filename,
+        "size": dest_path.stat().st_size,
+        "uploaded_at": iso_now(),
+        "download_url": f"/files/{new_id}/download",
+        "owner": recipient,
+        "saved_path": str(dest_path),
+    }
+
+    FILES[new_id] = new_meta
+
+    return jsonify({
+        "message": f"File sent to {recipient}",
+        "file_id": new_id
+    }), 200
+
 if __name__ == "__main__":
     # 0.0.0.0 allows other laptops on the same WiFi to access the API
     app.run(host="0.0.0.0", port=8000, debug=True)

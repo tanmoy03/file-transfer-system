@@ -411,8 +411,9 @@
           <div class="file-meta">${size} · Uploaded: ${escapeHtml(uploaded)}${owner}</div>
         </div>
         <div class="file-actions">
-          <button class="btn btn-small" data-copy="${escapeHtml(f.id)}">Copy link</button>
+          <button class="btn btn-small" data-send="${escapeHtml(f.id)}">Send</button>
           <button class="btn btn-small" data-download="${escapeHtml(f.id)}">Download</button>
+          <button class="btn btn-small" data-copy="${escapeHtml(f.id)}">Copy link</button>
           <button class="btn btn-danger btn-small" data-delete="${escapeHtml(f.id)}">Delete</button>
         </div>
       `;
@@ -420,6 +421,7 @@
     }
 
     filesList.querySelectorAll("[data-download]").forEach(b => b.addEventListener("click", () => downloadFile(b.dataset.download)));
+    filesList.querySelectorAll("[data-send]").forEach(b => b.addEventListener("click", () => sendFile(b.dataset.send)));
     filesList.querySelectorAll("[data-delete]").forEach(b => b.addEventListener("click", () => deleteFile(b.dataset.delete)));
     filesList.querySelectorAll("[data-copy]").forEach(b => b.addEventListener("click", () => copyLink(b.dataset.copy)));
   }
@@ -456,6 +458,33 @@
       refreshFiles();
     } catch (err) {
       toast("error", `Delete failed: ${err}`);
+    }
+  }
+
+  async function sendFile(id) {
+    const recipient = prompt("Send file to which user?");
+    if (!recipient) return;
+
+    try {
+      const ok = await ensureLogin();
+      if (!ok) return;
+
+      const res = await apiFetch(`/files/${encodeURIComponent(id)}/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: recipient })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        toast("error", data.error || "Send failed");
+        return;
+      }
+
+      toast("ok", `File sent to ${recipient}`);
+    } catch (err) {
+      toast("error", `Send failed: ${err}`);
     }
   }
 
