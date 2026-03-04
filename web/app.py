@@ -68,9 +68,10 @@ def logout():
 @app.get("/files")
 @require_auth
 def list_files():
-    # For now: return everything (we’ll filter by owner in the next feature)
     public = []
     for meta in FILES.values():
+        if meta.get("owner") != request.username:
+            continue
         public.append({
             "id": meta["id"],
             "filename": meta["filename"],
@@ -94,7 +95,10 @@ def upload_file():
     file_id = uuid.uuid4().hex
     filename = safe_name(f.filename)
 
-    saved_path = STORAGE_DIR / f"{file_id}_{filename}"
+    user_dir = STORAGE_DIR / request.username
+    user_dir.mkdir(parents=True, exist_ok=True)
+
+    saved_path = user_dir / f"{file_id}_{filename}"
     f.save(saved_path)
 
     meta = {
@@ -120,7 +124,6 @@ def upload_file():
 
 @app.get("/files/<file_id>/download")
 def download_file(file_id: str):
-    # Allow token via Authorization header OR ?token= for browser downloads
     auth = request.headers.get("Authorization", "")
     token = ""
 
@@ -136,6 +139,9 @@ def download_file(file_id: str):
     meta = FILES.get(file_id)
     if not meta:
         return jsonify({"error": "Not found"}), 404
+    
+    if meta.get("owner") != username:
+        return jsonify({"error": "Forbidden"}), 403
 
     path = Path(meta["saved_path"])
     if not path.exists():
@@ -146,9 +152,14 @@ def download_file(file_id: str):
 @app.delete("/files/<file_id>")
 @require_auth
 def delete_file(file_id: str):
-    meta = FILES.pop(file_id, None)
+    meta = FILES.get(file_id)
     if not meta:
         return jsonify({"error": "Not found"}), 404
+
+    if meta.get("owner") != request.username:
+        return jsonify({"error": "Forbidden"}), 403
+
+    FILES.pop(file_id, None)
 
     path = Path(meta["saved_path"])
     try:
