@@ -9,6 +9,7 @@
   // --- DOM refs ---
   const backendUrlLabel = $("#backendUrlLabel");
   const btnPing = $("#btnPing");
+  const btnLogout = $("#btnLogout"); // <-- add this button in index.html
 
   const dropzone = $("#dropzone");
   const fileInput = $("#fileInput");
@@ -35,8 +36,12 @@
   // Validation constants
   const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
   const ALLOWED_MIME_TYPES = [
-    "text/plain", "application/pdf", "image/png", "image/jpeg",
-    "application/zip", "application/octet-stream",
+    "text/plain",
+    "application/pdf",
+    "image/png",
+    "image/jpeg",
+    "application/zip",
+    "application/octet-stream",
   ];
 
   backendUrlLabel.textContent = BACKEND_BASE;
@@ -61,7 +66,11 @@
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, (c) => ({
-      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;",
     }[c]));
   }
 
@@ -135,6 +144,20 @@
     return res;
   }
 
+  async function logout() {
+    try {
+      // invalidate session on server (best-effort)
+      if (authToken) {
+        await apiFetch("/logout", { method: "POST" });
+      }
+    } catch {
+      // ignore network issues
+    }
+    clearAuth();
+    toast("ok", "Logged out.");
+    setTimeout(() => location.reload(), 150);
+  }
+
   async function pingBackend() {
     try {
       const ok = await ensureLogin();
@@ -194,8 +217,12 @@
   // ---------- Upload selection ----------
   function validateFile(file) {
     const errors = [];
-    if (file.size > MAX_FILE_SIZE_BYTES) errors.push(`Too large: ${formatBytes(file.size)} (max ${formatBytes(MAX_FILE_SIZE_BYTES)})`);
-    if (file.type && !ALLOWED_MIME_TYPES.includes(file.type)) errors.push(`Type not allowed: ${file.type}`);
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      errors.push(`Too large: ${formatBytes(file.size)} (max ${formatBytes(MAX_FILE_SIZE_BYTES)})`);
+    }
+    if (file.type && !ALLOWED_MIME_TYPES.includes(file.type)) {
+      errors.push(`Type not allowed: ${file.type}`);
+    }
     return errors;
   }
 
@@ -207,9 +234,14 @@
       const errors = validateFile(file);
       return {
         id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()),
-        file, ok: errors.length === 0, errors,
-        state: "queued", progress: 0,
-        result: null, errorText: "", xhr: null,
+        file,
+        ok: errors.length === 0,
+        errors,
+        state: "queued",
+        progress: 0,
+        result: null,
+        errorText: "",
+        xhr: null,
       };
     });
 
@@ -217,18 +249,22 @@
     renderSelected();
     updateUploadButton();
 
-    const okCount = additions.filter(x => x.ok).length;
+    const okCount = additions.filter((x) => x.ok).length;
     const badCount = additions.length - okCount;
     if (okCount) toast("ok", `Selected ${okCount} file(s) ready.`);
     if (badCount) toast("error", `${badCount} file(s) invalid (see list).`);
   }
 
   function updateUploadButton() {
-    btnUpload.disabled = !selected.some(x => x.ok && ["queued","failed","canceled"].includes(x.state));
+    btnUpload.disabled = !selected.some((x) => x.ok && ["queued", "failed", "canceled"].includes(x.state));
   }
 
   function clearSelected() {
-    for (const item of selected) if (item.state === "uploading" && item.xhr) try { item.xhr.abort(); } catch {}
+    for (const item of selected) {
+      if (item.state === "uploading" && item.xhr) {
+        try { item.xhr.abort(); } catch {}
+      }
+    }
     selected = [];
     renderSelected();
     fileInput.value = "";
@@ -237,9 +273,11 @@
   }
 
   function removeOne(id) {
-    const item = selected.find(x => x.id === id);
-    if (item && item.state === "uploading" && item.xhr) try { item.xhr.abort(); } catch {}
-    selected = selected.filter(x => x.id !== id);
+    const item = selected.find((x) => x.id === id);
+    if (item && item.state === "uploading" && item.xhr) {
+      try { item.xhr.abort(); } catch {}
+    }
+    selected = selected.filter((x) => x.id !== id);
     renderSelected();
     updateUploadButton();
   }
@@ -265,16 +303,18 @@
       const el = document.createElement("div");
       el.className = "item";
 
-      const errors = item.errors.map(e => `<div class="submeta">• ${escapeHtml(e)}</div>`).join("");
+      const errors = item.errors.map((e) => `<div class="submeta">• ${escapeHtml(e)}</div>`).join("");
       const serverLine = item.result ? `<div class="submeta">Server id: <code>${escapeHtml(item.result.id)}</code></div>` : "";
       const failLine = item.errorText ? `<div class="submeta">Error: ${escapeHtml(item.errorText)}</div>` : "";
 
       const showProgress = item.ok && (item.state === "uploading" || item.state === "success");
-      const progressHtml = showProgress ? `
+      const progressHtml = showProgress
+        ? `
         <div class="progressline">
           <div class="progress"><div style="width:${item.progress}%"></div></div>
           <div class="pct">${item.progress}%</div>
-        </div>` : "";
+        </div>`
+        : "";
 
       const canCancel = item.state === "uploading";
       const canRetry = item.ok && (item.state === "failed" || item.state === "canceled");
@@ -283,7 +323,9 @@
       el.innerHTML = `
         <div class="meta">
           <div class="name" title="${escapeHtml(item.file.name)}">${escapeHtml(item.file.name)}</div>
-          <div class="submeta">${formatBytes(item.file.size)} ${item.file.type ? "· " + escapeHtml(item.file.type) : ""}</div>
+          <div class="submeta">${formatBytes(item.file.size)} ${
+        item.file.type ? "· " + escapeHtml(item.file.type) : ""
+      }</div>
           ${progressHtml}
           ${serverLine}
           ${failLine}
@@ -300,61 +342,87 @@
       selectedList.appendChild(el);
     }
 
-    selectedList.querySelectorAll("[data-remove]").forEach(b => b.addEventListener("click", () => removeOne(b.dataset.remove)));
-    selectedList.querySelectorAll("[data-cancel]").forEach(b => b.addEventListener("click", () => cancelUpload(b.dataset.cancel)));
-    selectedList.querySelectorAll("[data-retry]").forEach(b => b.addEventListener("click", () => retryUpload(b.dataset.retry)));
-    selectedList.querySelectorAll("[data-uploadone]").forEach(b => b.addEventListener("click", async () => {
-      const ok = await ensureLogin();
-      if (!ok) return;
-      startUploadOne(b.dataset.uploadone);
-    }));
+    selectedList.querySelectorAll("[data-remove]").forEach((b) =>
+      b.addEventListener("click", () => removeOne(b.dataset.remove))
+    );
+    selectedList.querySelectorAll("[data-cancel]").forEach((b) =>
+      b.addEventListener("click", () => cancelUpload(b.dataset.cancel))
+    );
+    selectedList.querySelectorAll("[data-retry]").forEach((b) =>
+      b.addEventListener("click", () => retryUpload(b.dataset.retry))
+    );
+    selectedList.querySelectorAll("[data-uploadone]").forEach((b) =>
+      b.addEventListener("click", async () => {
+        const ok = await ensureLogin();
+        if (!ok) return;
+        startUploadOne(b.dataset.uploadone);
+      })
+    );
   }
 
   async function startUploadAllValid() {
     const ok = await ensureLogin();
     if (!ok) return;
 
-    const ids = selected.filter(x => x.ok && ["queued","failed","canceled"].includes(x.state)).map(x => x.id);
+    const ids = selected
+      .filter((x) => x.ok && ["queued", "failed", "canceled"].includes(x.state))
+      .map((x) => x.id);
+
     if (!ids.length) return toast("error", "No valid queued files to upload.");
     uploadSequential(ids);
   }
 
   async function uploadSequential(ids) {
     for (const id of ids) {
-      const item = selected.find(x => x.id === id);
+      const item = selected.find((x) => x.id === id);
       if (!item) continue;
-      if (!["queued","failed","canceled"].includes(item.state)) continue;
+      if (!["queued", "failed", "canceled"].includes(item.state)) continue;
       // eslint-disable-next-line no-await-in-loop
       await uploadOne(item);
-      renderSelected(); updateUploadButton();
+      renderSelected();
+      updateUploadButton();
     }
   }
 
   function startUploadOne(id) {
-    const item = selected.find(x => x.id === id);
+    const item = selected.find((x) => x.id === id);
     if (!item || !item.ok || item.state !== "queued") return;
-    uploadOne(item).then(() => { renderSelected(); updateUploadButton(); });
+    uploadOne(item).then(() => {
+      renderSelected();
+      updateUploadButton();
+    });
   }
 
   function retryUpload(id) {
-    const item = selected.find(x => x.id === id);
-    if (!item || !item.ok || !["failed","canceled"].includes(item.state)) return;
-    item.state = "queued"; item.progress = 0; item.errorText = ""; item.result = null;
-    renderSelected(); updateUploadButton();
+    const item = selected.find((x) => x.id === id);
+    if (!item || !item.ok || !["failed", "canceled"].includes(item.state)) return;
+    item.state = "queued";
+    item.progress = 0;
+    item.errorText = "";
+    item.result = null;
+    renderSelected();
+    updateUploadButton();
     startUploadOne(id);
   }
 
   function cancelUpload(id) {
-    const item = selected.find(x => x.id === id);
+    const item = selected.find((x) => x.id === id);
     if (!item || item.state !== "uploading" || !item.xhr) return;
-    try { item.xhr.abort(); } catch {}
-    item.state = "canceled"; item.errorText = "Canceled by user";
-    renderSelected(); updateUploadButton();
+    try {
+      item.xhr.abort();
+    } catch {}
+    item.state = "canceled";
+    item.errorText = "Canceled by user";
+    renderSelected();
+    updateUploadButton();
   }
 
   function uploadOne(item) {
     return new Promise((resolve) => {
-      item.state = "uploading"; item.progress = 0; item.errorText = ""; item.result = null;
+      item.state = "uploading";
+      item.progress = 0;
+      item.errorText = "";
+      item.result = null;
 
       const xhr = new XMLHttpRequest();
       item.xhr = xhr;
@@ -383,11 +451,13 @@
         if (xhr.status >= 200 && xhr.status < 300) {
           try {
             item.result = JSON.parse(xhr.responseText);
-            item.state = "success"; item.progress = 100;
+            item.state = "success";
+            item.progress = 100;
             toast("ok", `Uploaded: ${item.file.name}`);
             refreshFiles();
           } catch {
-            item.state = "failed"; item.errorText = "Upload ok but response JSON parse failed.";
+            item.state = "failed";
+            item.errorText = "Upload ok but response JSON parse failed.";
             toast("error", `Upload parse error: ${item.file.name}`);
           }
         } else {
@@ -399,7 +469,9 @@
       };
 
       xhr.onerror = () => {
-        item.xhr = null; item.state = "failed"; item.errorText = "Network error.";
+        item.xhr = null;
+        item.state = "failed";
+        item.errorText = "Network error.";
         toast("error", `Upload failed (network): ${item.file.name}`);
         resolve();
       };
@@ -407,7 +479,8 @@
       xhr.onabort = () => {
         item.xhr = null;
         if (item.state === "uploading") {
-          item.state = "canceled"; item.errorText = "Canceled by user";
+          item.state = "canceled";
+          item.errorText = "Canceled by user";
           toast("error", `Canceled: ${item.file.name}`);
         }
         resolve();
@@ -467,10 +540,18 @@
       filesList.appendChild(row);
     }
 
-    filesList.querySelectorAll("[data-download]").forEach(b => b.addEventListener("click", () => downloadFile(b.dataset.download)));
-    filesList.querySelectorAll("[data-send]").forEach(b => b.addEventListener("click", () => sendFile(b.dataset.send)));
-    filesList.querySelectorAll("[data-delete]").forEach(b => b.addEventListener("click", () => deleteFile(b.dataset.delete)));
-    filesList.querySelectorAll("[data-copy]").forEach(b => b.addEventListener("click", () => copyLink(b.dataset.copy)));
+    filesList.querySelectorAll("[data-download]").forEach((b) =>
+      b.addEventListener("click", () => downloadFile(b.dataset.download))
+    );
+    filesList.querySelectorAll("[data-send]").forEach((b) =>
+      b.addEventListener("click", () => sendFile(b.dataset.send))
+    );
+    filesList.querySelectorAll("[data-delete]").forEach((b) =>
+      b.addEventListener("click", () => deleteFile(b.dataset.delete))
+    );
+    filesList.querySelectorAll("[data-copy]").forEach((b) =>
+      b.addEventListener("click", () => copyLink(b.dataset.copy))
+    );
   }
 
   function downloadFile(id) {
@@ -510,7 +591,7 @@
       if (!ok) return;
 
       const users = await getOnlineUsers();
-      const others = users.filter(u => u !== username);
+      const others = users.filter((u) => u !== username);
 
       if (!others.length) {
         toast("error", "No other users online.");
@@ -523,7 +604,7 @@
       const res = await apiFetch(`/files/${encodeURIComponent(id)}/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: recipient.trim() })
+        body: JSON.stringify({ to: recipient.trim() }),
       });
 
       const data = await res.json().catch(() => ({}));
@@ -540,13 +621,19 @@
 
   function formatBytes(bytes) {
     const units = ["B", "KB", "MB", "GB"];
-    let b = bytes, i = 0;
-    while (b >= 1024 && i < units.length - 1) { b /= 1024; i++; }
+    let b = bytes,
+      i = 0;
+    while (b >= 1024 && i < units.length - 1) {
+      b /= 1024;
+      i++;
+    }
     return `${b.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
   }
 
   // Events
   btnPing.addEventListener("click", pingBackend);
+  if (btnLogout) btnLogout.addEventListener("click", logout);
+
   btnClear.addEventListener("click", clearSelected);
   btnUpload.addEventListener("click", startUploadAllValid);
   btnRefreshFiles.addEventListener("click", refreshFiles);
@@ -554,14 +641,27 @@
 
   if (btnRefreshUsers) btnRefreshUsers.addEventListener("click", refreshUsers);
 
-  ["dragenter", "dragover"].forEach(evt => dropzone.addEventListener(evt, (e) => {
-    e.preventDefault(); e.stopPropagation(); dropzone.classList.add("dragover");
-  }));
-  ["dragleave", "drop"].forEach(evt => dropzone.addEventListener(evt, (e) => {
-    e.preventDefault(); e.stopPropagation(); dropzone.classList.remove("dragover");
-  }));
-  dropzone.addEventListener("drop", (e) => { const dt = e.dataTransfer; if (dt && dt.files) addFiles(dt.files); });
-  dropzone.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") fileInput.click(); });
+  ["dragenter", "dragover"].forEach((evt) =>
+    dropzone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropzone.classList.add("dragover");
+    })
+  );
+  ["dragleave", "drop"].forEach((evt) =>
+    dropzone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropzone.classList.remove("dragover");
+    })
+  );
+  dropzone.addEventListener("drop", (e) => {
+    const dt = e.dataTransfer;
+    if (dt && dt.files) addFiles(dt.files);
+  });
+  dropzone.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") fileInput.click();
+  });
 
   // init
   (async () => {
