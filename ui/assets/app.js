@@ -1,15 +1,14 @@
 (() => {
-  const BACKEND_BASE = "http://172.20.10.3:8000"; // your server laptop IP
+  const BACKEND_BASE = "http://172.20.10.3:8000"; // server laptop IP
   const TOKEN_KEY = "fs_token";
   const USER_KEY = "fs_user";
 
-  // Helper selector MUST be defined before using it
   const $ = (sel) => document.querySelector(sel);
 
   // --- DOM refs ---
   const backendUrlLabel = $("#backendUrlLabel");
   const btnPing = $("#btnPing");
-  const btnLogout = $("#btnLogout"); // <-- add this button in index.html
+  const btnLogout = $("#btnLogout");
 
   const dropzone = $("#dropzone");
   const fileInput = $("#fileInput");
@@ -23,7 +22,7 @@
   const btnRefreshFiles = $("#btnRefreshFiles");
   const filesList = $("#filesList");
 
-  // Online users panel (only if you added it to index.html)
+  // Online users panel
   const btnRefreshUsers = $("#btnRefreshUsers");
   const usersList = $("#usersList");
 
@@ -127,7 +126,7 @@
 
   // Centralized fetch:
   // - attaches token
-  // - on 401 clears auth and forces re-login once
+  // - on 401 clears auth and forces relogin once
   async function apiFetch(path, options = {}) {
     const opts = { ...options };
     opts.headers = authHeaders(opts.headers || {});
@@ -146,7 +145,7 @@
 
   async function logout() {
     try {
-      // invalidate session on server (best-effort)
+      // invalidate session on server
       if (authToken) {
         await apiFetch("/logout", { method: "POST" });
       }
@@ -377,7 +376,6 @@
       const item = selected.find((x) => x.id === id);
       if (!item) continue;
       if (!["queued", "failed", "canceled"].includes(item.state)) continue;
-      // eslint-disable-next-line no-await-in-loop
       await uploadOne(item);
       renderSelected();
       updateUploadButton();
@@ -671,7 +669,7 @@
     if (ok) {
       await pingBackend();
       await refreshFiles();
-      await refreshUsers(); // show online users on load (if panel exists)
+      await refreshUsers(); // show online users on load 
     }
   })();
 })();
