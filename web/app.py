@@ -8,14 +8,13 @@ from flask_cors import CORS
 
 app = Flask(__name__)
 
-# Allow UI (any origin in local-dev) and allow Authorization header
 CORS(app, resources={r"/*": {"origins": "*"}}, allow_headers=["Content-Type", "Authorization"])
 
 BASE_DIR = Path(__file__).resolve().parent
 STORAGE_DIR = BASE_DIR / "api_storage"
 STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 
-# In-memory stores (fine for local dev / assignment)
+# In-memory stores
 FILES = {}     # id -> {id, filename, size, saved_path, uploaded_at, owner, download_url}
 SESSIONS = {}  # token -> username
 USERS = set()  # registered usernames (simple demo store)
