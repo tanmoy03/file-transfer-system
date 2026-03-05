@@ -223,6 +223,13 @@ def send_file_to_user(file_id: str):
         "file_id": new_id
     }), 200
 
+@app.get("/users/online")
+@require_auth
+def users_online():
+    # Users with active session tokens
+    online = sorted(set(SESSIONS.values()))
+    return jsonify({"users": online}), 200
+
 if __name__ == "__main__":
     # 0.0.0.0 allows other laptops on the same WiFi to access the API
     app.run(host="0.0.0.0", port=8000, debug=True)

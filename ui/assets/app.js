@@ -3,18 +3,10 @@
   const TOKEN_KEY = "fs_token";
   const USER_KEY = "fs_user";
 
-  let authToken = localStorage.getItem(TOKEN_KEY) || "";
-  let username = localStorage.getItem(USER_KEY) || "";
-
-  // Validation constants
-  const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
-  const ALLOWED_MIME_TYPES = [
-    "text/plain", "application/pdf", "image/png", "image/jpeg",
-    "application/zip", "application/octet-stream",
-  ];
-
+  // Helper selector MUST be defined before using it
   const $ = (sel) => document.querySelector(sel);
 
+  // --- DOM refs ---
   const backendUrlLabel = $("#backendUrlLabel");
   const btnPing = $("#btnPing");
 
@@ -30,7 +22,22 @@
   const btnRefreshFiles = $("#btnRefreshFiles");
   const filesList = $("#filesList");
 
+  // Online users panel (only if you added it to index.html)
+  const btnRefreshUsers = $("#btnRefreshUsers");
+  const usersList = $("#usersList");
+
   const toastsEl = $("#toasts");
+
+  // --- Auth state ---
+  let authToken = localStorage.getItem(TOKEN_KEY) || "";
+  let username = localStorage.getItem(USER_KEY) || "";
+
+  // Validation constants
+  const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
+  const ALLOWED_MIME_TYPES = [
+    "text/plain", "application/pdf", "image/png", "image/jpeg",
+    "application/zip", "application/octet-stream",
+  ];
 
   backendUrlLabel.textContent = BACKEND_BASE;
   maxSizeLabel.textContent = formatBytes(MAX_FILE_SIZE_BYTES);
@@ -109,9 +116,9 @@
     };
   }
 
-  // Centralized fetch that:
-  // 1) attaches token
-  // 2) if 401 happens, clears token and forces re-login once
+  // Centralized fetch:
+  // - attaches token
+  // - on 401 clears auth and forces re-login once
   async function apiFetch(path, options = {}) {
     const opts = { ...options };
     opts.headers = authHeaders(opts.headers || {});
@@ -140,6 +147,47 @@
       toast("ok", `Backend OK. ${Array.isArray(data) ? data.length : "?"} file(s) listed.`);
     } catch (err) {
       toast("error", `Cannot reach backend at ${BACKEND_BASE}. ${err}`);
+    }
+  }
+
+  // ---------- Online users ----------
+  async function getOnlineUsers() {
+    const res = await apiFetch("/users/online", { method: "GET" });
+    if (!res.ok) return [];
+    const data = await res.json().catch(() => ({}));
+    return Array.isArray(data.users) ? data.users : [];
+  }
+
+  async function refreshUsers() {
+    // Only run if panel exists in HTML
+    if (!usersList) return;
+
+    const ok = await ensureLogin();
+    if (!ok) return;
+
+    const users = await getOnlineUsers();
+    renderUsers(users);
+  }
+
+  function renderUsers(users) {
+    if (!usersList) return;
+
+    usersList.innerHTML = "";
+    if (!users.length) {
+      usersList.innerHTML = `<div class="placeholder">No users online.</div>`;
+      return;
+    }
+
+    for (const u of users) {
+      const row = document.createElement("div");
+      row.className = "file-row";
+      row.innerHTML = `
+        <div class="file-left">
+          <div class="file-name">${escapeHtml(u)}</div>
+          <div class="file-meta">${u === username ? "You" : "Online"}</div>
+        </div>
+      `;
+      usersList.appendChild(row);
     }
   }
 
@@ -325,7 +373,6 @@
         item.xhr = null;
 
         if (xhr.status === 401) {
-          // Token invalid/missing (rare now, but handle cleanly)
           clearAuth();
           item.state = "failed";
           item.errorText = "Not logged in. Please refresh and login again.";
@@ -427,10 +474,6 @@
   }
 
   function downloadFile(id) {
-    // Download in new tab; auth-protected downloads generally work if the server doesn't require headers.
-    // Since we DO require headers, this endpoint will 401 in a raw browser open.
-    // Easiest fix (for now): make download NOT require auth OR implement a signed download URL.
-    // For assignment simplicity, we temporarily allow download via token in querystring:
     const url = `${BACKEND_BASE}/files/${encodeURIComponent(id)}/download?token=${encodeURIComponent(authToken)}`;
     window.open(url, "_blank");
   }
@@ -462,34 +505,41 @@
   }
 
   async function sendFile(id) {
-    const recipient = prompt("Send file to which user?");
-    if (!recipient) return;
-
     try {
       const ok = await ensureLogin();
       if (!ok) return;
 
+      const users = await getOnlineUsers();
+      const others = users.filter(u => u !== username);
+
+      if (!others.length) {
+        toast("error", "No other users online.");
+        return;
+      }
+
+      const recipient = prompt(`Send to who?\nOnline: ${others.join(", ")}`);
+      if (!recipient) return;
+
       const res = await apiFetch(`/files/${encodeURIComponent(id)}/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: recipient })
+        body: JSON.stringify({ to: recipient.trim() })
       });
 
-      const data = await res.json();
-
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         toast("error", data.error || "Send failed");
         return;
       }
 
-      toast("ok", `File sent to ${recipient}`);
+      toast("ok", `File sent to ${recipient.trim()}`);
     } catch (err) {
       toast("error", `Send failed: ${err}`);
     }
   }
 
   function formatBytes(bytes) {
-    const units = ["B","KB","MB","GB"];
+    const units = ["B", "KB", "MB", "GB"];
     let b = bytes, i = 0;
     while (b >= 1024 && i < units.length - 1) { b /= 1024; i++; }
     return `${b.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
@@ -502,10 +552,12 @@
   btnRefreshFiles.addEventListener("click", refreshFiles);
   fileInput.addEventListener("change", (e) => addFiles(e.target.files));
 
-  ["dragenter","dragover"].forEach(evt => dropzone.addEventListener(evt, (e) => {
+  if (btnRefreshUsers) btnRefreshUsers.addEventListener("click", refreshUsers);
+
+  ["dragenter", "dragover"].forEach(evt => dropzone.addEventListener(evt, (e) => {
     e.preventDefault(); e.stopPropagation(); dropzone.classList.add("dragover");
   }));
-  ["dragleave","drop"].forEach(evt => dropzone.addEventListener(evt, (e) => {
+  ["dragleave", "drop"].forEach(evt => dropzone.addEventListener(evt, (e) => {
     e.preventDefault(); e.stopPropagation(); dropzone.classList.remove("dragover");
   }));
   dropzone.addEventListener("drop", (e) => { const dt = e.dataTransfer; if (dt && dt.files) addFiles(dt.files); });
@@ -519,6 +571,7 @@
     if (ok) {
       await pingBackend();
       await refreshFiles();
+      await refreshUsers(); // show online users on load (if panel exists)
     }
   })();
 })();
