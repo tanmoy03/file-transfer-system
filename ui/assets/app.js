@@ -1,5 +1,5 @@
 (() => {
-  const BACKEND_BASE = "http://172.20.10.3:8000";
+  const BACKEND_BASE = "http://172.20.10.2:8000";
   const TOKEN_KEY = "fs_token";
   const USER_KEY = "fs_user";
 
@@ -22,6 +22,9 @@
 
   const btnRefreshFiles = $("#btnRefreshFiles");
   const filesList = $("#filesList");
+
+  const btnRefreshInbox = $("#btnRefreshInbox");
+  const inboxList = $("#inboxList");
 
   const btnRefreshUsers = $("#btnRefreshUsers");
   const usersList = $("#usersList");
@@ -396,6 +399,7 @@
             item.progress = 100;
             toast("ok", `Uploaded: ${item.file.name}`);
             refreshFiles();
+            refreshInbox();
           } catch {
             item.state = "failed";
             item.errorText = "Upload ok but response parse failed.";
@@ -442,6 +446,14 @@
     renderFiles();
   }
 
+  async function refreshInbox() {
+    const res = await apiFetch("/inbox", { method: "GET" });
+    if (!res || !res.ok) return;
+
+    const data = await res.json().catch(() => []);
+    renderInbox(Array.isArray(data) ? data : []);
+  }
+
   function renderFiles() {
     filesList.innerHTML = "";
     if (!lastFiles.length) {
@@ -456,11 +468,12 @@
       const name = f.filename || f.name || f.id;
       const size = typeof f.size === "number" ? formatBytes(f.size) : "—";
       const uploaded = f.uploaded_at ? new Date(f.uploaded_at).toLocaleString() : "—";
+      const fromLine = f.source_user ? ` · From: ${escapeHtml(f.source_user)}` : "";
 
       row.innerHTML = `
         <div class="file-left">
           <div class="file-name" title="${escapeHtml(name)}">${escapeHtml(name)}</div>
-          <div class="file-meta">${size} · Uploaded: ${escapeHtml(uploaded)}</div>
+          <div class="file-meta">${size} · Uploaded: ${escapeHtml(uploaded)}${fromLine}</div>
         </div>
         <div class="file-actions">
           <button class="btn btn-small" data-send="${escapeHtml(f.id)}">Send</button>
@@ -483,6 +496,46 @@
     );
     filesList.querySelectorAll("[data-copy]").forEach((b) =>
       b.addEventListener("click", () => copyLink(b.dataset.copy))
+    );
+  }
+
+  function renderInbox(items) {
+    if (!inboxList) return;
+
+    inboxList.innerHTML = "";
+
+    if (!items.length) {
+      inboxList.innerHTML = `<div class="placeholder">No received files yet.</div>`;
+      return;
+    }
+
+    for (const f of items) {
+      const row = document.createElement("div");
+      row.className = "file-row";
+
+      const name = f.filename || f.id;
+      const size = typeof f.size === "number" ? formatBytes(f.size) : "—";
+      const uploaded = f.uploaded_at ? new Date(f.uploaded_at).toLocaleString() : "—";
+      const sender = f.source_user ? `From: ${escapeHtml(f.source_user)}` : "Received";
+
+      row.innerHTML = `
+        <div class="file-left">
+          <div class="file-name" title="${escapeHtml(name)}">${escapeHtml(name)}</div>
+          <div class="file-meta">${size} · ${sender} · ${escapeHtml(uploaded)}</div>
+        </div>
+        <div class="file-actions">
+          <button class="btn btn-small" data-inbox-download="${escapeHtml(f.id)}">Download</button>
+          <button class="btn btn-small" data-inbox-copy="${escapeHtml(f.id)}">Copy link</button>
+        </div>
+      `;
+      inboxList.appendChild(row);
+    }
+
+    inboxList.querySelectorAll("[data-inbox-download]").forEach((b) =>
+      b.addEventListener("click", () => downloadFile(b.dataset.inboxDownload))
+    );
+    inboxList.querySelectorAll("[data-inbox-copy]").forEach((b) =>
+      b.addEventListener("click", () => copyLink(b.dataset.inboxCopy))
     );
   }
 
@@ -510,6 +563,7 @@
 
     toast("ok", "File deleted.");
     refreshFiles();
+    refreshInbox();
   }
 
   async function sendFile(id) {
@@ -539,6 +593,7 @@
     }
 
     toast("ok", `File sent to ${recipient.trim()}`);
+    refreshInbox();
   }
 
   function formatBytes(bytes) {
@@ -559,6 +614,7 @@
   btnClear.addEventListener("click", clearSelected);
   btnUpload.addEventListener("click", startUploadAllValid);
   btnRefreshFiles.addEventListener("click", refreshFiles);
+  btnRefreshInbox.addEventListener("click", refreshInbox);
   btnRefreshUsers.addEventListener("click", refreshUsers);
 
   fileInput.addEventListener("change", (e) => addFiles(e.target.files));
@@ -599,5 +655,6 @@
 
   currentUser.textContent = `Logged in as: ${username}`;
   refreshFiles();
+  refreshInbox();
   refreshUsers();
 })();

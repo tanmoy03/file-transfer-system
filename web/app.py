@@ -1,6 +1,7 @@
 import os
 import uuid
 import sqlite3
+import shutil
 from functools import wraps
 from pathlib import Path
 from datetime import datetime
@@ -8,10 +9,13 @@ from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 
-
 app = Flask(__name__)
 
-CORS(app, resources={r"/*": {"origins": "*"}}, allow_headers=["Content-Type", "Authorization"])
+CORS(
+    app,
+    resources={r"/*": {"origins": "*"}},
+    allow_headers=["Content-Type", "Authorization"]
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 STORAGE_DIR = BASE_DIR / "api_storage"
@@ -20,6 +24,7 @@ STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = BASE_DIR / "users.db"
 
 SESSIONS = {}  # token -> username
+
 
 def get_db_connection():
     conn = sqlite3.connect(DB_PATH)
@@ -45,21 +50,28 @@ def init_db():
             size INTEGER NOT NULL,
             uploaded_at TEXT NOT NULL,
             owner TEXT NOT NULL,
-            saved_path TEXT NOT NULL
+            saved_path TEXT NOT NULL,
+            source_user TEXT
         )
     """)
+
+    try:
+        conn.execute("ALTER TABLE files ADD COLUMN source_user TEXT")
+    except sqlite3.OperationalError:
+        pass
 
     conn.commit()
     conn.close()
 
-def insert_file_record(file_id, filename, size, uploaded_at, owner, saved_path):
+
+def insert_file_record(file_id, filename, size, uploaded_at, owner, saved_path, source_user=None):
     conn = get_db_connection()
     conn.execute(
         """
-        INSERT INTO files (id, filename, size, uploaded_at, owner, saved_path)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO files (id, filename, size, uploaded_at, owner, saved_path, source_user)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        (file_id, filename, size, uploaded_at, owner, saved_path)
+        (file_id, filename, size, uploaded_at, owner, saved_path, source_user)
     )
     conn.commit()
     conn.close()
@@ -69,9 +81,24 @@ def get_files_for_user(owner):
     conn = get_db_connection()
     rows = conn.execute(
         """
-        SELECT id, filename, size, uploaded_at, owner, saved_path
+        SELECT id, filename, size, uploaded_at, owner, saved_path, source_user
         FROM files
-        WHERE owner = ?
+        WHERE owner = ? AND source_user IS NULL
+        ORDER BY uploaded_at DESC
+        """,
+        (owner,)
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+def get_inbox_files_for_user(owner):
+    conn = get_db_connection()
+    rows = conn.execute(
+        """
+        SELECT id, filename, size, uploaded_at, owner, saved_path, source_user
+        FROM files
+        WHERE owner = ? AND source_user IS NOT NULL
         ORDER BY uploaded_at DESC
         """,
         (owner,)
@@ -84,7 +111,7 @@ def get_file_by_id(file_id):
     conn = get_db_connection()
     row = conn.execute(
         """
-        SELECT id, filename, size, uploaded_at, owner, saved_path
+        SELECT id, filename, size, uploaded_at, owner, saved_path, source_user
         FROM files
         WHERE id = ?
         """,
@@ -100,26 +127,32 @@ def delete_file_record(file_id):
     conn.commit()
     conn.close()
 
+
 def require_auth(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
         auth = request.headers.get("Authorization", "")
         if not auth.startswith("Bearer "):
             return jsonify({"error": "Missing Authorization Bearer token"}), 401
+
         token = auth.split(" ", 1)[1].strip()
         username = SESSIONS.get(token)
         if not username:
             return jsonify({"error": "Invalid or expired token"}), 401
+
         request.username = username
         request.token = token
         return fn(*args, **kwargs)
     return wrapper
 
+
 def iso_now():
     return datetime.utcnow().isoformat() + "Z"
 
+
 def safe_name(name: str) -> str:
     return os.path.basename(name or "file.bin")
+
 
 @app.get("/")
 def home():
@@ -130,9 +163,13 @@ def home():
             "/login",
             "/logout",
             "/files",
+            "/files/<id>/download",
+            "/files/<id>/send",
+            "/inbox",
             "/users/online"
         ]
     })
+
 
 @app.post("/register")
 def register():
@@ -158,6 +195,7 @@ def register():
 
     return jsonify({"message": "User registered successfully"}), 201
 
+
 @app.post("/login")
 def login():
     data = request.get_json(silent=True) or {}
@@ -174,15 +212,11 @@ def login():
     ).fetchone()
     conn.close()
 
-    if row is None:
-        return jsonify({"error": "Invalid username or password"}), 401
-
-    if not check_password_hash(row["password_hash"], password):
+    if row is None or not check_password_hash(row["password_hash"], password):
         return jsonify({"error": "Invalid username or password"}), 401
 
     token = uuid.uuid4().hex
 
-    # Remove any existing session for the same user
     for t, u in list(SESSIONS.items()):
         if u == username:
             SESSIONS.pop(t)
@@ -194,12 +228,13 @@ def login():
         "username": username
     }), 200
 
+
 @app.post("/logout")
 @require_auth
 def logout():
-    # remove current token
     SESSIONS.pop(request.token, None)
     return jsonify({"ok": True}), 200
+
 
 @app.get("/files")
 @require_auth
@@ -215,9 +250,31 @@ def list_files():
             "uploaded_at": row["uploaded_at"],
             "download_url": f"/files/{row['id']}/download",
             "owner": row["owner"],
+            "source_user": row["source_user"],
         })
 
     return jsonify(public)
+
+
+@app.get("/inbox")
+@require_auth
+def inbox():
+    rows = get_inbox_files_for_user(request.username)
+
+    items = []
+    for row in rows:
+        items.append({
+            "id": row["id"],
+            "filename": row["filename"],
+            "size": row["size"],
+            "uploaded_at": row["uploaded_at"],
+            "owner": row["owner"],
+            "source_user": row["source_user"],
+            "download_url": f"/files/{row['id']}/download",
+        })
+
+    return jsonify(items), 200
+
 
 @app.post("/files")
 @require_auth
@@ -247,10 +304,10 @@ def upload_file():
         size=size,
         uploaded_at=uploaded_at,
         owner=request.username,
-        saved_path=str(saved_path)
+        saved_path=str(saved_path),
+        source_user=None
     )
 
-    # Return JSON without internal path
     return jsonify({
         "id": file_id,
         "filename": filename,
@@ -258,7 +315,9 @@ def upload_file():
         "uploaded_at": uploaded_at,
         "download_url": f"/files/{file_id}/download",
         "owner": request.username,
+        "source_user": None,
     }), 201
+
 
 @app.get("/files/<file_id>/download")
 def download_file(file_id: str):
@@ -287,6 +346,7 @@ def download_file(file_id: str):
 
     return send_file(path, as_attachment=True, download_name=row["filename"])
 
+
 @app.delete("/files/<file_id>")
 @require_auth
 def delete_file(file_id: str):
@@ -307,6 +367,7 @@ def delete_file(file_id: str):
     delete_file_record(file_id)
     return jsonify({"ok": True, "deleted": file_id}), 200
 
+
 @app.post("/files/<file_id>/send")
 @require_auth
 def send_file_to_user(file_id: str):
@@ -316,7 +377,6 @@ def send_file_to_user(file_id: str):
     if not recipient:
         return jsonify({"error": "Recipient username required"}), 400
 
-    # Check recipient exists in DB
     conn = get_db_connection()
     user_row = conn.execute(
         "SELECT username FROM users WHERE username = ?",
@@ -327,12 +387,10 @@ def send_file_to_user(file_id: str):
     if user_row is None:
         return jsonify({"error": "User does not exist"}), 404
 
-    # Look up file
     file_row = get_file_by_id(file_id)
     if file_row is None:
         return jsonify({"error": "File not found"}), 404
 
-    # Only owner can send
     if file_row["owner"] != request.username:
         return jsonify({"error": "Forbidden"}), 403
 
@@ -340,17 +398,13 @@ def send_file_to_user(file_id: str):
     if not src_path.exists():
         return jsonify({"error": "File missing"}), 404
 
-    # Create recipient directory
     dest_dir = STORAGE_DIR / recipient
     dest_dir.mkdir(parents=True, exist_ok=True)
 
-    # Generate new file metadata
     new_id = uuid.uuid4().hex
     dest_filename = file_row["filename"]
     dest_path = dest_dir / f"{new_id}_{dest_filename}"
 
-    # Copy file
-    import shutil
     shutil.copy2(src_path, dest_path)
 
     uploaded_at = iso_now()
@@ -362,7 +416,8 @@ def send_file_to_user(file_id: str):
         size=size,
         uploaded_at=uploaded_at,
         owner=recipient,
-        saved_path=str(dest_path)
+        saved_path=str(dest_path),
+        source_user=request.username
     )
 
     return jsonify({
@@ -370,13 +425,14 @@ def send_file_to_user(file_id: str):
         "file_id": new_id
     }), 200
 
+
 @app.get("/users/online")
+@require_auth
 def users_online():
-    # Users with active session tokens
     online = sorted(list(set(SESSIONS.values())))
     return jsonify({"users": online}), 200
 
+
 if __name__ == "__main__":
     init_db()
-    # 0.0.0.0 allows other laptops on the same WiFi to access the API
     app.run(host="0.0.0.0", port=8000, debug=True)

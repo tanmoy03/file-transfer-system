@@ -1,5 +1,5 @@
 (() => {
-  const BACKEND_BASE = "http://172.20.10.3:8000";
+  const BACKEND_BASE = "http://172.20.10.2:8000";
   const TOKEN_KEY = "fs_token";
   const USER_KEY = "fs_user";
 

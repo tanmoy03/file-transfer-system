@@ -21,7 +21,6 @@
       </div>
     </header>
 
-    <!-- MAIN APP -->
     <main id="mainApp" class="grid">
       <!-- Upload -->
       <section class="card">
@@ -56,8 +55,19 @@
           <div class="spacer"></div>
           <button id="btnRefreshFiles" class="btn btn-secondary" type="button">Refresh</button>
         </div>
-        <p class="muted">Loaded from <code>GET /files</code>.</p>
+        <p class="muted">Files you uploaded or currently own.</p>
         <div id="filesList" class="files"></div>
+      </section>
+
+      <!-- Inbox -->
+      <section class="card">
+        <div class="row" style="margin-top:0">
+          <h2 style="margin:0">Inbox</h2>
+          <div class="spacer"></div>
+          <button id="btnRefreshInbox" class="btn btn-secondary" type="button">Refresh</button>
+        </div>
+        <p class="muted">Files received from other users.</p>
+        <div id="inboxList" class="files"></div>
       </section>
 
       <!-- Online users -->
