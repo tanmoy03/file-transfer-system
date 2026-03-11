@@ -19,10 +19,7 @@ STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 DB_PATH = BASE_DIR / "users.db"
 
-# In-memory stores
-FILES = {}     # id -> {id, filename, size, saved_path, uploaded_at, owner, download_url}
 SESSIONS = {}  # token -> username
-# USERS = set()  # registered usernames (simple demo store)
 
 def get_db_connection():
     conn = sqlite3.connect(DB_PATH)
@@ -32,6 +29,7 @@ def get_db_connection():
 
 def init_db():
     conn = get_db_connection()
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -39,6 +37,66 @@ def init_db():
             password_hash TEXT NOT NULL
         )
     """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS files (
+            id TEXT PRIMARY KEY,
+            filename TEXT NOT NULL,
+            size INTEGER NOT NULL,
+            uploaded_at TEXT NOT NULL,
+            owner TEXT NOT NULL,
+            saved_path TEXT NOT NULL
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+def insert_file_record(file_id, filename, size, uploaded_at, owner, saved_path):
+    conn = get_db_connection()
+    conn.execute(
+        """
+        INSERT INTO files (id, filename, size, uploaded_at, owner, saved_path)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (file_id, filename, size, uploaded_at, owner, saved_path)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_files_for_user(owner):
+    conn = get_db_connection()
+    rows = conn.execute(
+        """
+        SELECT id, filename, size, uploaded_at, owner, saved_path
+        FROM files
+        WHERE owner = ?
+        ORDER BY uploaded_at DESC
+        """,
+        (owner,)
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+def get_file_by_id(file_id):
+    conn = get_db_connection()
+    row = conn.execute(
+        """
+        SELECT id, filename, size, uploaded_at, owner, saved_path
+        FROM files
+        WHERE id = ?
+        """,
+        (file_id,)
+    ).fetchone()
+    conn.close()
+    return row
+
+
+def delete_file_record(file_id):
+    conn = get_db_connection()
+    conn.execute("DELETE FROM files WHERE id = ?", (file_id,))
     conn.commit()
     conn.close()
 
@@ -146,18 +204,19 @@ def logout():
 @app.get("/files")
 @require_auth
 def list_files():
+    rows = get_files_for_user(request.username)
+
     public = []
-    for meta in FILES.values():
-        if meta.get("owner") != request.username:
-            continue
+    for row in rows:
         public.append({
-            "id": meta["id"],
-            "filename": meta["filename"],
-            "size": meta["size"],
-            "uploaded_at": meta["uploaded_at"],
-            "download_url": meta["download_url"],
-            "owner": meta.get("owner"),
+            "id": row["id"],
+            "filename": row["filename"],
+            "size": row["size"],
+            "uploaded_at": row["uploaded_at"],
+            "download_url": f"/files/{row['id']}/download",
+            "owner": row["owner"],
         })
+
     return jsonify(public)
 
 @app.post("/files")
@@ -179,25 +238,26 @@ def upload_file():
     saved_path = user_dir / f"{file_id}_{filename}"
     f.save(saved_path)
 
-    meta = {
-        "id": file_id,
-        "filename": filename,
-        "size": saved_path.stat().st_size,
-        "uploaded_at": iso_now(),
-        "download_url": f"/files/{file_id}/download",
-        "owner": request.username,
-        "saved_path": str(saved_path),  # internal only
-    }
-    FILES[file_id] = meta
+    uploaded_at = iso_now()
+    size = saved_path.stat().st_size
+
+    insert_file_record(
+        file_id=file_id,
+        filename=filename,
+        size=size,
+        uploaded_at=uploaded_at,
+        owner=request.username,
+        saved_path=str(saved_path)
+    )
 
     # Return JSON without internal path
     return jsonify({
         "id": file_id,
         "filename": filename,
-        "size": meta["size"],
-        "uploaded_at": meta["uploaded_at"],
-        "download_url": meta["download_url"],
-        "owner": meta["owner"],
+        "size": size,
+        "uploaded_at": uploaded_at,
+        "download_url": f"/files/{file_id}/download",
+        "owner": request.username,
     }), 201
 
 @app.get("/files/<file_id>/download")
@@ -214,38 +274,37 @@ def download_file(file_id: str):
     if not username:
         return jsonify({"error": "Missing or invalid token"}), 401
 
-    meta = FILES.get(file_id)
-    if not meta:
+    row = get_file_by_id(file_id)
+    if row is None:
         return jsonify({"error": "Not found"}), 404
-    
-    if meta.get("owner") != username:
+
+    if row["owner"] != username:
         return jsonify({"error": "Forbidden"}), 403
 
-    path = Path(meta["saved_path"])
+    path = Path(row["saved_path"])
     if not path.exists():
         return jsonify({"error": "File missing on disk"}), 404
 
-    return send_file(path, as_attachment=True, download_name=meta["filename"])
+    return send_file(path, as_attachment=True, download_name=row["filename"])
 
 @app.delete("/files/<file_id>")
 @require_auth
 def delete_file(file_id: str):
-    meta = FILES.get(file_id)
-    if not meta:
+    row = get_file_by_id(file_id)
+    if row is None:
         return jsonify({"error": "Not found"}), 404
 
-    if meta.get("owner") != request.username:
+    if row["owner"] != request.username:
         return jsonify({"error": "Forbidden"}), 403
 
-    FILES.pop(file_id, None)
-
-    path = Path(meta["saved_path"])
+    path = Path(row["saved_path"])
     try:
         if path.exists():
             path.unlink()
     except Exception as e:
         return jsonify({"error": f"Failed to delete file: {e}"}), 500
 
+    delete_file_record(file_id)
     return jsonify({"ok": True, "deleted": file_id}), 200
 
 @app.post("/files/<file_id>/send")
@@ -257,25 +316,27 @@ def send_file_to_user(file_id: str):
     if not recipient:
         return jsonify({"error": "Recipient username required"}), 400
 
+    # Check recipient exists in DB
     conn = get_db_connection()
-    row = conn.execute(
+    user_row = conn.execute(
         "SELECT username FROM users WHERE username = ?",
         (recipient,)
     ).fetchone()
     conn.close()
 
-    if row is None:
+    if user_row is None:
         return jsonify({"error": "User does not exist"}), 404
 
-    meta = FILES.get(file_id)
-    if not meta:
+    # Look up file
+    file_row = get_file_by_id(file_id)
+    if file_row is None:
         return jsonify({"error": "File not found"}), 404
 
     # Only owner can send
-    if meta.get("owner") != request.username:
+    if file_row["owner"] != request.username:
         return jsonify({"error": "Forbidden"}), 403
 
-    src_path = Path(meta["saved_path"])
+    src_path = Path(file_row["saved_path"])
     if not src_path.exists():
         return jsonify({"error": "File missing"}), 404
 
@@ -283,25 +344,26 @@ def send_file_to_user(file_id: str):
     dest_dir = STORAGE_DIR / recipient
     dest_dir.mkdir(parents=True, exist_ok=True)
 
+    # Generate new file metadata
     new_id = uuid.uuid4().hex
-    dest_filename = meta["filename"]
+    dest_filename = file_row["filename"]
     dest_path = dest_dir / f"{new_id}_{dest_filename}"
 
     # Copy file
     import shutil
     shutil.copy2(src_path, dest_path)
 
-    new_meta = {
-        "id": new_id,
-        "filename": dest_filename,
-        "size": dest_path.stat().st_size,
-        "uploaded_at": iso_now(),
-        "download_url": f"/files/{new_id}/download",
-        "owner": recipient,
-        "saved_path": str(dest_path),
-    }
+    uploaded_at = iso_now()
+    size = dest_path.stat().st_size
 
-    FILES[new_id] = new_meta
+    insert_file_record(
+        file_id=new_id,
+        filename=dest_filename,
+        size=size,
+        uploaded_at=uploaded_at,
+        owner=recipient,
+        saved_path=str(dest_path)
+    )
 
     return jsonify({
         "message": f"File sent to {recipient}",
@@ -309,7 +371,6 @@ def send_file_to_user(file_id: str):
     }), 200
 
 @app.get("/users/online")
-@require_auth
 def users_online():
     # Users with active session tokens
     online = sorted(list(set(SESSIONS.values())))
