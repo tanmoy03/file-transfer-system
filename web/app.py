@@ -1,10 +1,13 @@
 import os
 import uuid
+import sqlite3
 from functools import wraps
 from pathlib import Path
 from datetime import datetime
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
+from werkzeug.security import generate_password_hash, check_password_hash
+
 
 app = Flask(__name__)
 
@@ -14,10 +17,30 @@ BASE_DIR = Path(__file__).resolve().parent
 STORAGE_DIR = BASE_DIR / "api_storage"
 STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 
+DB_PATH = BASE_DIR / "users.db"
+
 # In-memory stores
 FILES = {}     # id -> {id, filename, size, saved_path, uploaded_at, owner, download_url}
 SESSIONS = {}  # token -> username
-USERS = set()  # registered usernames (simple demo store)
+# USERS = set()  # registered usernames (simple demo store)
+
+def get_db_connection():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db():
+    conn = get_db_connection()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    conn.close()
 
 def require_auth(fn):
     @wraps(fn)
@@ -42,20 +65,76 @@ def safe_name(name: str) -> str:
 
 @app.get("/")
 def home():
-    return "File API running. Use /login and /files", 200
+    return jsonify({
+        "message": "File Transfer API running",
+        "endpoints": [
+            "/register",
+            "/login",
+            "/logout",
+            "/files",
+            "/users/online"
+        ]
+    })
+
+@app.post("/register")
+def register():
+    data = request.get_json(silent=True) or {}
+    username = (data.get("username") or "").strip()
+    password = (data.get("password") or "").strip()
+
+    if not username or not password:
+        return jsonify({"error": "Username and password are required"}), 400
+
+    password_hash = generate_password_hash(password)
+
+    try:
+        conn = get_db_connection()
+        conn.execute(
+            "INSERT INTO users (username, password_hash) VALUES (?, ?)",
+            (username, password_hash)
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "Username already exists"}), 409
+
+    return jsonify({"message": "User registered successfully"}), 201
 
 @app.post("/login")
 def login():
     data = request.get_json(silent=True) or {}
     username = (data.get("username") or "").strip()
+    password = (data.get("password") or "").strip()
 
-    if not username:
-        return jsonify({"error": "Username required"}), 400
+    if not username or not password:
+        return jsonify({"error": "Username and password are required"}), 400
 
-    USERS.add(username)
+    conn = get_db_connection()
+    row = conn.execute(
+        "SELECT * FROM users WHERE username = ?",
+        (username,)
+    ).fetchone()
+    conn.close()
+
+    if row is None:
+        return jsonify({"error": "Invalid username or password"}), 401
+
+    if not check_password_hash(row["password_hash"], password):
+        return jsonify({"error": "Invalid username or password"}), 401
+
     token = uuid.uuid4().hex
+
+    # Remove any existing session for the same user
+    for t, u in list(SESSIONS.items()):
+        if u == username:
+            SESSIONS.pop(t)
+
     SESSIONS[token] = username
-    return jsonify({"token": token, "username": username}), 200
+
+    return jsonify({
+        "token": token,
+        "username": username
+    }), 200
 
 @app.post("/logout")
 @require_auth
@@ -178,7 +257,14 @@ def send_file_to_user(file_id: str):
     if not recipient:
         return jsonify({"error": "Recipient username required"}), 400
 
-    if recipient not in USERS:
+    conn = get_db_connection()
+    row = conn.execute(
+        "SELECT username FROM users WHERE username = ?",
+        (recipient,)
+    ).fetchone()
+    conn.close()
+
+    if row is None:
         return jsonify({"error": "User does not exist"}), 404
 
     meta = FILES.get(file_id)
@@ -226,9 +312,10 @@ def send_file_to_user(file_id: str):
 @require_auth
 def users_online():
     # Users with active session tokens
-    online = sorted(set(SESSIONS.values()))
+    online = sorted(list(set(SESSIONS.values())))
     return jsonify({"users": online}), 200
 
 if __name__ == "__main__":
+    init_db()
     # 0.0.0.0 allows other laptops on the same WiFi to access the API
     app.run(host="0.0.0.0", port=8000, debug=True)

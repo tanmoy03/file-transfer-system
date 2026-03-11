@@ -11,19 +11,24 @@
     <header class="header">
       <div>
         <h1>File Sharing</h1>
-        <p class="sub">Frontend UI (local dev) · API: <code id="backendUrlLabel"></code></p>
+        <p class="sub">
+          Frontend UI (local dev) · API: <code id="backendUrlLabel"></code>
+        </p>
       </div>
       <div class="header-actions">
-        <button id="btnPing" class="btn btn-secondary">Ping backend</button>
+        <button id="btnPing" class="btn btn-secondary" type="button">Ping backend</button>
         <button id="btnLogout" class="btn btn-danger" type="button">Logout</button>
       </div>
     </header>
 
-    <main class="grid">
+    <!-- MAIN APP -->
+    <main id="mainApp" class="grid">
       <!-- Upload -->
       <section class="card">
         <h2>Upload</h2>
-        <p class="muted">Drag & drop files here or use the file picker. Upload uses <code>POST /files</code>.</p>
+        <p class="muted">
+          Drag & drop files here or use the file picker.
+        </p>
 
         <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="File dropzone">
           <div class="dz-title">Drop files here</div>
@@ -51,15 +56,8 @@
           <div class="spacer"></div>
           <button id="btnRefreshFiles" class="btn btn-secondary" type="button">Refresh</button>
         </div>
-        <p class="muted">Loaded from <code>GET /files</code>. Actions: Download, Delete.</p>
+        <p class="muted">Loaded from <code>GET /files</code>.</p>
         <div id="filesList" class="files"></div>
-      </section>
-
-      <!-- Status -->
-      <section class="card full">
-        <h2>Status</h2>
-        <div id="alerts" class="alerts"></div>
-        <div class="small muted">API should be running on <code>http://127.0.0.1:8000</code>.</div>
       </section>
 
       <!-- Online users -->
@@ -69,14 +67,18 @@
           <div class="spacer"></div>
           <button id="btnRefreshUsers" class="btn btn-secondary" type="button">Refresh</button>
         </div>
-        <p class="muted">Users currently logged in (active sessions).</p>
+        <p class="muted">Users currently logged in.</p>
         <div id="usersList" class="files"></div>
       </section>
-  
-    </main>
 
-    <footer class="footer"><span></span></footer>
+      <!-- Status -->
+      <section class="card full">
+        <h2>Status</h2>
+        <div id="currentUser" class="muted"></div>
+      </section>
+    </main>
   </div>
+
   <div id="toasts" class="toast-wrap"></div>
   <script src="./assets/app.js"></script>
 </body>

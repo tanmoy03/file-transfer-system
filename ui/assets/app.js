@@ -1,14 +1,15 @@
 (() => {
-  const BACKEND_BASE = "http://172.20.10.3:8000"; // server laptop IP
+  const BACKEND_BASE = "http://172.20.10.3:8000";
   const TOKEN_KEY = "fs_token";
   const USER_KEY = "fs_user";
 
   const $ = (sel) => document.querySelector(sel);
 
-  // --- DOM refs ---
+  // Main UI
   const backendUrlLabel = $("#backendUrlLabel");
   const btnPing = $("#btnPing");
   const btnLogout = $("#btnLogout");
+  const currentUser = $("#currentUser");
 
   const dropzone = $("#dropzone");
   const fileInput = $("#fileInput");
@@ -22,18 +23,15 @@
   const btnRefreshFiles = $("#btnRefreshFiles");
   const filesList = $("#filesList");
 
-  // Online users panel
   const btnRefreshUsers = $("#btnRefreshUsers");
   const usersList = $("#usersList");
 
   const toastsEl = $("#toasts");
 
-  // --- Auth state ---
   let authToken = localStorage.getItem(TOKEN_KEY) || "";
   let username = localStorage.getItem(USER_KEY) || "";
 
-  // Validation constants
-  const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
+  const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
   const ALLOWED_MIME_TYPES = [
     "text/plain",
     "application/pdf",
@@ -50,7 +48,6 @@
   let selected = [];
   let lastFiles = [];
 
-  // ---------- Toasts ----------
   function toast(type, text, ttlMs = 2600) {
     const el = document.createElement("div");
     el.className = `toast ${type}`;
@@ -80,41 +77,8 @@
     localStorage.removeItem(USER_KEY);
   }
 
-  async function ensureLogin(force = false) {
-    if (!force && authToken && authToken.trim().length > 0) return true;
-
-    const u = prompt("Enter username to login:");
-    if (!u) return false;
-
-    try {
-      const res = await fetch(`${BACKEND_BASE}/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: u.trim() }),
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        toast("error", data.error || "Login failed");
-        return false;
-      }
-
-      authToken = data.token || "";
-      username = data.username || u.trim();
-
-      if (!authToken) {
-        toast("error", "Login did not return a token.");
-        return false;
-      }
-
-      localStorage.setItem(TOKEN_KEY, authToken);
-      localStorage.setItem(USER_KEY, username);
-      toast("ok", `Logged in as ${username}`);
-      return true;
-    } catch (e) {
-      toast("error", `Login error: ${e}`);
-      return false;
-    }
+  function redirectToAuth() {
+    window.location.href = "./auth.html";
   }
 
   function authHeaders(extra = {}) {
@@ -124,69 +88,57 @@
     };
   }
 
-  // Centralized fetch:
-  // - attaches token
-  // - on 401 clears auth and forces relogin once
   async function apiFetch(path, options = {}) {
     const opts = { ...options };
     opts.headers = authHeaders(opts.headers || {});
 
-    let res = await fetch(`${BACKEND_BASE}${path}`, opts);
+    const res = await fetch(`${BACKEND_BASE}${path}`, opts);
 
     if (res.status === 401) {
       clearAuth();
-      const ok = await ensureLogin(true);
-      if (!ok) return res;
-      opts.headers = authHeaders(options.headers || {});
-      res = await fetch(`${BACKEND_BASE}${path}`, opts);
+      toast("error", "Session expired. Please log in again.");
+      setTimeout(() => redirectToAuth(), 200);
+      return null;
     }
+
     return res;
   }
 
   async function logout() {
     try {
-      // invalidate session on server
       if (authToken) {
         await apiFetch("/logout", { method: "POST" });
       }
     } catch {
-      // ignore network issues
+      // ignore logout network errors
     }
+
     clearAuth();
     toast("ok", "Logged out.");
-    setTimeout(() => location.reload(), 150);
+    setTimeout(() => redirectToAuth(), 200);
   }
 
   async function pingBackend() {
-    try {
-      const ok = await ensureLogin();
-      if (!ok) return;
+    const res = await apiFetch("/files", { method: "GET" });
+    if (!res) return;
 
-      const res = await apiFetch("/files", { method: "GET" });
-      if (!res.ok) return toast("error", `Backend reachable but returned ${res.status} on GET /files`);
-
-      const data = await res.json();
-      toast("ok", `Backend OK. ${Array.isArray(data) ? data.length : "?"} file(s) listed.`);
-    } catch (err) {
-      toast("error", `Cannot reach backend at ${BACKEND_BASE}. ${err}`);
+    if (!res.ok) {
+      toast("error", `Backend reachable but returned ${res.status} on GET /files`);
+      return;
     }
+
+    const data = await res.json().catch(() => []);
+    toast("ok", `Backend OK. ${Array.isArray(data) ? data.length : 0} file(s) listed.`);
   }
 
-  // ---------- Online users ----------
   async function getOnlineUsers() {
     const res = await apiFetch("/users/online", { method: "GET" });
-    if (!res.ok) return [];
+    if (!res || !res.ok) return [];
     const data = await res.json().catch(() => ({}));
     return Array.isArray(data.users) ? data.users : [];
   }
 
   async function refreshUsers() {
-    // Only run if panel exists in HTML
-    if (!usersList) return;
-
-    const ok = await ensureLogin();
-    if (!ok) return;
-
     const users = await getOnlineUsers();
     renderUsers(users);
   }
@@ -213,7 +165,6 @@
     }
   }
 
-  // ---------- Upload selection ----------
   function validateFile(file) {
     const errors = [];
     if (file.size > MAX_FILE_SIZE_BYTES) {
@@ -267,8 +218,8 @@
     selected = [];
     renderSelected();
     fileInput.value = "";
-    toast("ok", "Selection cleared.");
     updateUploadButton();
+    toast("ok", "Selection cleared.");
   }
 
   function removeOne(id) {
@@ -307,13 +258,11 @@
       const failLine = item.errorText ? `<div class="submeta">Error: ${escapeHtml(item.errorText)}</div>` : "";
 
       const showProgress = item.ok && (item.state === "uploading" || item.state === "success");
-      const progressHtml = showProgress
-        ? `
+      const progressHtml = showProgress ? `
         <div class="progressline">
           <div class="progress"><div style="width:${item.progress}%"></div></div>
           <div class="pct">${item.progress}%</div>
-        </div>`
-        : "";
+        </div>` : "";
 
       const canCancel = item.state === "uploading";
       const canRetry = item.ok && (item.state === "failed" || item.state === "canceled");
@@ -322,9 +271,7 @@
       el.innerHTML = `
         <div class="meta">
           <div class="name" title="${escapeHtml(item.file.name)}">${escapeHtml(item.file.name)}</div>
-          <div class="submeta">${formatBytes(item.file.size)} ${
-        item.file.type ? "· " + escapeHtml(item.file.type) : ""
-      }</div>
+          <div class="submeta">${formatBytes(item.file.size)} ${item.file.type ? "· " + escapeHtml(item.file.type) : ""}</div>
           ${progressHtml}
           ${serverLine}
           ${failLine}
@@ -351,23 +298,20 @@
       b.addEventListener("click", () => retryUpload(b.dataset.retry))
     );
     selectedList.querySelectorAll("[data-uploadone]").forEach((b) =>
-      b.addEventListener("click", async () => {
-        const ok = await ensureLogin();
-        if (!ok) return;
-        startUploadOne(b.dataset.uploadone);
-      })
+      b.addEventListener("click", () => startUploadOne(b.dataset.uploadone))
     );
   }
 
-  async function startUploadAllValid() {
-    const ok = await ensureLogin();
-    if (!ok) return;
-
+  function startUploadAllValid() {
     const ids = selected
       .filter((x) => x.ok && ["queued", "failed", "canceled"].includes(x.state))
       .map((x) => x.id);
 
-    if (!ids.length) return toast("error", "No valid queued files to upload.");
+    if (!ids.length) {
+      toast("error", "No valid queued files to upload.");
+      return;
+    }
+
     uploadSequential(ids);
   }
 
@@ -406,9 +350,7 @@
   function cancelUpload(id) {
     const item = selected.find((x) => x.id === id);
     if (!item || item.state !== "uploading" || !item.xhr) return;
-    try {
-      item.xhr.abort();
-    } catch {}
+    try { item.xhr.abort(); } catch {}
     item.state = "canceled";
     item.errorText = "Canceled by user";
     renderSelected();
@@ -440,9 +382,10 @@
 
         if (xhr.status === 401) {
           clearAuth();
+          toast("error", "Session expired. Please log in again.");
+          setTimeout(() => redirectToAuth(), 200);
           item.state = "failed";
-          item.errorText = "Not logged in. Please refresh and login again.";
-          toast("error", "Session expired. Refresh and login again.");
+          item.errorText = "Session expired";
           return resolve();
         }
 
@@ -455,7 +398,7 @@
             refreshFiles();
           } catch {
             item.state = "failed";
-            item.errorText = "Upload ok but response JSON parse failed.";
+            item.errorText = "Upload ok but response parse failed.";
             toast("error", `Upload parse error: ${item.file.name}`);
           }
         } else {
@@ -490,21 +433,13 @@
     });
   }
 
-  // ---------- File list ----------
   async function refreshFiles() {
-    try {
-      const ok = await ensureLogin();
-      if (!ok) return;
+    const res = await apiFetch("/files", { method: "GET" });
+    if (!res || !res.ok) return;
 
-      const res = await apiFetch("/files", { method: "GET" });
-      if (!res.ok) return toast("error", `Failed to load files: HTTP ${res.status}`);
-
-      const data = await res.json();
-      lastFiles = Array.isArray(data) ? data : [];
-      renderFiles();
-    } catch (err) {
-      toast("error", `Failed to load files: ${err}`);
-    }
+    const data = await res.json().catch(() => []);
+    lastFiles = Array.isArray(data) ? data : [];
+    renderFiles();
   }
 
   function renderFiles() {
@@ -521,12 +456,11 @@
       const name = f.filename || f.name || f.id;
       const size = typeof f.size === "number" ? formatBytes(f.size) : "—";
       const uploaded = f.uploaded_at ? new Date(f.uploaded_at).toLocaleString() : "—";
-      const owner = f.owner ? ` · Owner: ${escapeHtml(f.owner)}` : "";
 
       row.innerHTML = `
         <div class="file-left">
           <div class="file-name" title="${escapeHtml(name)}">${escapeHtml(name)}</div>
-          <div class="file-meta">${size} · Uploaded: ${escapeHtml(uploaded)}${owner}</div>
+          <div class="file-meta">${size} · Uploaded: ${escapeHtml(uploaded)}</div>
         </div>
         <div class="file-actions">
           <button class="btn btn-small" data-send="${escapeHtml(f.id)}">Send</button>
@@ -570,57 +504,47 @@
 
   async function deleteFile(id) {
     if (!confirm("Delete this file?")) return;
-    try {
-      const ok = await ensureLogin();
-      if (!ok) return;
 
-      const res = await apiFetch(`/files/${encodeURIComponent(id)}`, { method: "DELETE" });
-      if (!res.ok) return toast("error", `Delete failed: HTTP ${res.status}`);
-      toast("ok", "File deleted.");
-      refreshFiles();
-    } catch (err) {
-      toast("error", `Delete failed: ${err}`);
-    }
+    const res = await apiFetch(`/files/${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (!res || !res.ok) return;
+
+    toast("ok", "File deleted.");
+    refreshFiles();
   }
 
   async function sendFile(id) {
-    try {
-      const ok = await ensureLogin();
-      if (!ok) return;
+    const users = await getOnlineUsers();
+    const others = users.filter((u) => u !== username);
 
-      const users = await getOnlineUsers();
-      const others = users.filter((u) => u !== username);
-
-      if (!others.length) {
-        toast("error", "No other users online.");
-        return;
-      }
-
-      const recipient = prompt(`Send to who?\nOnline: ${others.join(", ")}`);
-      if (!recipient) return;
-
-      const res = await apiFetch(`/files/${encodeURIComponent(id)}/send`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: recipient.trim() }),
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        toast("error", data.error || "Send failed");
-        return;
-      }
-
-      toast("ok", `File sent to ${recipient.trim()}`);
-    } catch (err) {
-      toast("error", `Send failed: ${err}`);
+    if (!others.length) {
+      toast("error", "No other users online.");
+      return;
     }
+
+    const recipient = prompt(`Send to who?\nOnline: ${others.join(", ")}`);
+    if (!recipient) return;
+
+    const res = await apiFetch(`/files/${encodeURIComponent(id)}/send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ to: recipient.trim() }),
+    });
+
+    if (!res) return;
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      toast("error", data.error || "Send failed");
+      return;
+    }
+
+    toast("ok", `File sent to ${recipient.trim()}`);
   }
 
   function formatBytes(bytes) {
     const units = ["B", "KB", "MB", "GB"];
-    let b = bytes,
-      i = 0;
+    let b = bytes;
+    let i = 0;
     while (b >= 1024 && i < units.length - 1) {
       b /= 1024;
       i++;
@@ -630,14 +554,14 @@
 
   // Events
   btnPing.addEventListener("click", pingBackend);
-  if (btnLogout) btnLogout.addEventListener("click", logout);
+  btnLogout.addEventListener("click", logout);
 
   btnClear.addEventListener("click", clearSelected);
   btnUpload.addEventListener("click", startUploadAllValid);
   btnRefreshFiles.addEventListener("click", refreshFiles);
-  fileInput.addEventListener("change", (e) => addFiles(e.target.files));
+  btnRefreshUsers.addEventListener("click", refreshUsers);
 
-  if (btnRefreshUsers) btnRefreshUsers.addEventListener("click", refreshUsers);
+  fileInput.addEventListener("change", (e) => addFiles(e.target.files));
 
   ["dragenter", "dragover"].forEach((evt) =>
     dropzone.addEventListener(evt, (e) => {
@@ -646,6 +570,7 @@
       dropzone.classList.add("dragover");
     })
   );
+
   ["dragleave", "drop"].forEach((evt) =>
     dropzone.addEventListener(evt, (e) => {
       e.preventDefault();
@@ -653,23 +578,26 @@
       dropzone.classList.remove("dragover");
     })
   );
+
   dropzone.addEventListener("drop", (e) => {
     const dt = e.dataTransfer;
     if (dt && dt.files) addFiles(dt.files);
   });
+
   dropzone.addEventListener("keydown", (e) => {
     if (e.key === "Enter" || e.key === " ") fileInput.click();
   });
 
-  // init
-  (async () => {
-    renderSelected();
-    updateUploadButton();
-    const ok = await ensureLogin();
-    if (ok) {
-      await pingBackend();
-      await refreshFiles();
-      await refreshUsers(); // show online users on load 
-    }
-  })();
+  // Init
+  renderSelected();
+  updateUploadButton();
+
+  if (!authToken || !username) {
+    redirectToAuth();
+    return;
+  }
+
+  currentUser.textContent = `Logged in as: ${username}`;
+  refreshFiles();
+  refreshUsers();
 })();
