@@ -1,206 +1,248 @@
-# FileFlow - Multi-User File Transfer System
+# FileFlow
 
 ## Overview
+FileFlow is a multi-user file sharing application that allows users to register, login, upload files, view their own files, download, delete and send files to other users through a central server.
 
-This project is a secure multi-user file transfer system that allows
-users to upload, store, and share files through a central server.
+The project combines a web frontend with a Python backend and demonstrates client-server design, user authentication, file storage, and multi-user file transfer.
 
-Multiple users can connect simultaneously and send files to each other
-without needing to know IP addresses.
+---
 
-The system was originally implemented using Python socket programming,
-and later extended with a web-based frontend and HTTP API backend for
-improved usability.
+## Main Features
 
-------------------------------------------------------------------------
+- User registration and login
+- Password-based authentication
+- Logout and session handling
+- File upload with progress tracking
+- File download
+- File deletion
+- Per-user file storage
+- Send files to other users
+- Inbox / received files view
+- Online users list
+- Shareable download links
+- Separate authentication page and main application page
+
+---
 
 ## System Architecture
 
-Browser (Frontend) 
-    │ 
-    │ HTTP Requests 
-    ▼ 
-  Flask Backend Server 
-    │ 
-    │ File Storage 
-    ▼ 
-  api_storage/ 
-        ├── tom/ 
-        ├── ethan/ 
-        └── other_users/
+The system is divided into two main parts:
 
-------------------------------------------------------------------------
+### Frontend
+Built using:
+- HTML
+- CSS
+- JavaScript
 
-## Features
+The frontend provides:
+- Authentication page
+- File upload interface
+- File list view
+- Online users display
+- File sending controls
 
-### User Authentication
+### Backend
+Built using:
+- Python
+- Flask
+- SQLite
 
-Users log in with a username and receive a session token used to
-authenticate API requests.
+The backend provides:
+- User registration and login API
+- Session token management
+- File metadata storage
+- Per-user file storage directories
+- File transfer between users
+- Online user tracking
 
-Endpoint: POST /login
+---
 
-------------------------------------------------------------------------
+## Project Structure
 
-### File Upload
+file-transfer-system/
+│
+├── README.md
+├── ui/
+│   ├── auth.html
+│   ├── index.html
+│   └── assets/
+│       ├── auth.js
+│       ├── app.js
+│       └── styles.css
+│
+├── web/
+│   ├── app.py
+│   ├── users.db
+│   └── api_storage/
+│
+├── legacy_socket/
+│
+└── legacy_udp/
 
-Users can upload files using: 
-- File picker 
-- Drag and drop
 
-Features include: 
-- File validation 
-- Upload progress bar 
-- Retry / cancel upload
+## How the System Works
 
-Endpoint: POST /files
+### 1. Authentication
+Users register with a username and password. Passwords are stored securely as hashes in a SQLite database.
 
-------------------------------------------------------------------------
+After login, the backend generates a session token. This token is stored in the browser and is used for authenticated API requests.
 
-### File Listing
+### 2. Uploading Files
+A user logged in can upload a file through the web interface. The file is stored on the server inside a folder named after the user.
 
-Users can view their uploaded files including: 
-- Filename 
-- File size 
-- Upload timestamp
+The backend also stores file metadata such as:
+- file id
+- filename
+- file size
+- owner
+- upload time
+- saved path
 
-Endpoint: GET /files
+### 3. Viewing Files
+Each user only sees their own files. The frontend loads file data from the backend and displays:
+- filename
+- size
+- upload time
 
-------------------------------------------------------------------------
+### 4. Sending Files
+A user can send a file to another user. The backend copies the selected file into the recipient's storage directory and inserts a new metadata record for that user.
 
-### File Download
+### 5. Inbox / Received Files
+When a file is sent to another user, it appears in that user's inbox or received files view.  
+This allows recipients to clearly distinguish between files they uploaded themselves and files received from other users.
 
-Files can be downloaded directly or through generated share links.
+The inbox improves usability by making file sharing more similar to a real-world messaging or cloud sharing system.
 
-Endpoint: GET /files/{id}/download
+### 6. Downloading and Deleting
+Users can download or delete files from their own account through the interface.
 
-------------------------------------------------------------------------
+---
 
-### File Deletion
+## API Endpoints
 
-Users can delete their uploaded files.
+### Authentication
+- `POST /register`
+- `POST /login`
+- `POST /logout`
 
-Endpoint: DELETE /files/{id}
+### Files
+- `GET /files`
+- `POST /files`
+- `GET /files/<id>/download`
+- `DELETE /files/<id>`
+- `POST /files/<id>/send`
 
-------------------------------------------------------------------------
+### Users
+- `GET /users/online`
 
-### File Transfer Between Users
+---
 
-Workflow:
+## Database
 
-1. Alice uploads file
-2. Server stores file
-3. Alice sends file → Bob
-4. Server copies file
-5. Bob sees file in his file list
+The project uses SQLite for persistence.
 
-Endpoint: POST /files/{id}/send
+### Users table
+Stores:
+- username
+- hashed password
 
-------------------------------------------------------------------------
+### Files table
+Stores:
+- file id
+- filename
+- size
+- uploaded_at
+- owner
+- saved_path
 
-### Online Users
+This allows the system to keep user accounts and file metadata even after the server restarts.
 
-The system tracks active users currently logged in.
-
-Endpoint: GET /users/online
-
-------------------------------------------------------------------------
-
-### Logout / Session Management
-
-Users can log out, which invalidates their authentication token.
-
-Endpoint: POST /logout
-
-------------------------------------------------------------------------
-
-## Technologies Used
-
-Backend -> Python - Flask
-
-Frontend -> HTML - CSS - JavaScript
-
-Version Control -> Git - GitHub
-
-------------------------------------------------------------------------
+---
 
 ## How to Run the Project
 
 ### 1. Install dependencies
+From the project root:
 
-pip install flask
+```bash
+pip install flask flask-cors
+```
 
-------------------------------------------------------------------------
-
-### 2. Start the backend server
-
+### 2. Start the backend
+```bash
 python -m web.app
+```
 
-Server runs on: http://127.0.0.1:8000
+### 3. Start the frontend
+In a separate terminal:
 
-------------------------------------------------------------------------
-
-### 3. Open the frontend
-
-Open in another terminal:
-
+```bash
 cd ui
 python -m http.server 5173
+```
 
-------------------------------------------------------------------------
+### 4. Open the application
+Go to:
 
-### 4. Login
+http://127.0.0.1:5173/auth.html
 
-Enter a username such as:
+---
 
-tom\ethan
+## Example Demo Flow
 
-------------------------------------------------------------------------
+1. Register a new user
+2. Log in
+3. Upload a file
+4. View the uploaded file in the file list
+5. Send the file to another online user
+6. Log in as the second user
+7. Open the inbox / received files view
+8. View the received file
+9. Download or delete the file
 
-### 5. Upload and share files
+---
 
-Users can: 
-- Upload files 
-- View files 
-- Send files to other users 
-- Download files 
-- Delete files
+## Development Progress
 
-------------------------------------------------------------------------
+This project originally began as a socket-based file transfer system using UDP. That earlier implementation is kept in the `legacy_udp` folder.
+
+The final version evolved into a web-based multi-user file sharing system with:
+- separate frontend and backend
+- database-backed authentication
+- persistent file metadata
+- user-to-user file transfer
+
+This progression demonstrates both low-level networking work and higher-level web application development.
+
+---
 
 ## Future Improvements
 
-Possible extensions include: 
-- End-to-end encryption 
-- File activity logging 
-- Expiring share links 
-- User storage limits 
-- Real-time user presence updates
- 
-------------------------------------------------------------------------
+Possible future extensions include:
+- file activity log
+- expiring share links
+- encryption for uploaded files
+- password reset functionality
+- admin controls
+- real-time updates without refresh
 
-## Legacy Implementation
-
-The earliest implementation using UDP socket file transfer is stored in:
-
-legacy_udp/
-
-Another early implementation using TCP socket file transfer is stored in:
-
-legacy_socket/
-
-Version 1 (UDP) demonstrates: - Client-server socket communication - UDP
-packet transfer - File transfer reliability
-
-Version 2 (TCP) demonstrates: - Client-server socket communication through UDP discovery - TCP file transfer - Web API 
-
-------------------------------------------------------------------------
+---
 
 ## Authors
 
-Team Members: Tanmoy Debnath, Tobi Ayinla
+Group Members:
+- Tanmoy Debnath
+- Faruq Ayinla
 
-Team members contributed to: - Network communication - Backend server
-development - Frontend interface design - System testing and debugging
+Areas of work included:
+- backend development
+- frontend development
+- authentication system
+- file transfer logic
+- system testing and debugging
 
-------------------------------------------------------------------------
+---
+
+## License
+
+This project is for educational use only.
