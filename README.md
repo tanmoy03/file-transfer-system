@@ -240,9 +240,3 @@ Areas of work included:
 - authentication system
 - file transfer logic
 - system testing and debugging
-
----
-
-## License
-
-This project is for educational use only.
