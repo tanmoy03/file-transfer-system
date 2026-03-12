@@ -1,4 +1,4 @@
-# Secure Multi-User File Transfer System
+# FileFlow - Multi-User File Transfer System
 
 ## Overview
 
