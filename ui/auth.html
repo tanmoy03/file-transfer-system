@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Login - FileFlow</title>
+  <link rel="stylesheet" href="./assets/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div>
+        <h1>FileFlow</h1>
+        <p class="sub">Authentication page · API: <code id="backendUrlLabel"></code></p>
+      </div>
+    </header>
+
+    <section class="card auth-card">
+      <div class="auth-grid">
+        <div>
+          <h2>Login</h2>
+          <p class="muted">Sign in to your account.</p>
+          <form id="loginForm" class="auth-form">
+            <input id="loginUsername" class="input" type="text" placeholder="Username" required />
+            <input id="loginPassword" class="input" type="password" placeholder="Password" required />
+            <button class="btn" type="submit">Login</button>
+          </form>
+        </div>
+
+        <div>
+          <h2>Register</h2>
+          <p class="muted">Create a new account.</p>
+          <form id="registerForm" class="auth-form">
+            <input id="registerUsername" class="input" type="text" placeholder="Username" required />
+            <input id="registerPassword" class="input" type="password" placeholder="Password" required />
+            <button class="btn" type="submit">Register</button>
+          </form>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div id="toasts" class="toast-wrap"></div>
+  <script src="./assets/auth.js"></script>
+</body>
+</html>
